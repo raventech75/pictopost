@@ -1,20 +1,23 @@
 import { OpenAI } from "openai";
 import { NextResponse } from "next/server";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// ON ENLÈVE LA DÉCLARATION GLOBALE ICI (C'est elle qui faisait planter le build)
 
 export async function POST(req: Request) {
   try {
+    // ON LA DÉPLACE ICI (À l'intérieur de la fonction)
+    // Comme ça, Vercel ne vérifiera la clé que quand quelqu'un utilise l'app.
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
     const body = await req.json();
-    const { imageBase64, city, tone, businessName } = body; // Ajout de businessName
+    const { imageBase64, city, tone, businessName } = body;
 
     if (!imageBase64) {
       return NextResponse.json({ error: "Aucune image fournie" }, { status: 400 });
     }
 
-    // Contexte enrichi
     const contextCity = city ? `Ville : ${city}` : "";
     const contextName = businessName ? `Nom du Commerce : ${businessName}` : "Nom générique (ex: Votre expert)";
     const contextTone = tone ? `Ton : ${tone}` : "Ton : Standard";
@@ -24,20 +27,14 @@ export async function POST(req: Request) {
       CONTEXTE : ${contextName}. ${contextCity}. ${contextTone}.
 
       RÈGLES TIKTOK (CRUCIAL) :
-      - Ne sois PAS trop court. Utilise la structure "Liste à puces" pour donner de la valeur.
-      - Structure :
-        1. Une phrase d'accroche (Hook).
-        2. Une ligne vide.
-        3. 3 avantages ou détails du produit avec des emojis (ex: "✅ Fait maison", "🚀 Service rapide").
-        4. Une question de fin.
+      - Ne sois PAS trop court. Utilise la structure "Liste à puces".
+      - Structure : Hook + Ligne vide + 3 avantages (emojis) + Question de fin.
       
       RÈGLES INSTAGRAM :
-      - Storytelling immersif. Parle des sens (odeur, vue, goût).
-      - Utilise des sauts de ligne pour aérer.
+      - Storytelling immersif. Sauts de ligne.
       
       RÈGLES FACEBOOK :
-      - Ton "Quartier / Communauté". Rassurant et informatif.
-      - Mets en avant l'humain derrière le commerce.
+      - Ton "Quartier / Communauté". Rassurant.
 
       JSON ATTENDU :
       {
@@ -60,15 +57,16 @@ export async function POST(req: Request) {
           ],
         },
       ],
-      temperature: 0.8, // Un peu plus créatif pour éviter les répétitions si on régénère
+      temperature: 0.8,
     });
 
     const content = response.choices[0].message.content;
     const jsonContent = JSON.parse(content || "{}");
+
     return NextResponse.json(jsonContent);
 
   } catch (error) {
-    console.error(error);
+    console.error("Erreur API:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }

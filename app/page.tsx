@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Analytics } from "@vercel/analytics/next"
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
@@ -19,9 +18,9 @@ export default function Home() {
   const [isDragging, setIsDragging] = useState(false);
   const [progress, setProgress] = useState(0);
   
-  // --- ÉTATS MODALE CONTACT ---
+  // MODALE CONTACT
   const [showFeedback, setShowFeedback] = useState(false);
-  const [emailCopied, setEmailCopied] = useState(false); // Pour le bouton copier l'email
+  const [emailCopied, setEmailCopied] = useState(false);
 
   const tones = [
     { id: "Standard", label: "🎯 Standard" },
@@ -50,27 +49,71 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageBase64: b64, city, tone, businessName }),
       });
-      if (!response.ok) throw new Error("Erreur");
+      
+      if (!response.ok) {
+        // Gestion spécifique de l'erreur "Trop gros"
+        if (response.status === 413) throw new Error("Image trop lourde même après compression.");
+        throw new Error("Erreur lors de la génération.");
+      }
+      
       const data = await response.json();
       setResult(data);
-    } catch (error) {
-      alert("Erreur: " + error);
+    } catch (error: any) {
+      alert("Oups : " + error.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const processFile = (file: File) => {
+  // --- NOUVEAU : FONCTION DE COMPRESSION MAGIQUE ---
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          // On crée un canvas pour redessiner l'image en plus petit
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          
+          // Calcul des nouvelles dimensions (Max 800px de large pour Vercel)
+          const MAX_WIDTH = 800;
+          const scaleSize = MAX_WIDTH / img.width;
+          canvas.width = MAX_WIDTH;
+          canvas.height = img.height * scaleSize;
+
+          // Dessin et compression (Qualité 0.7 = 70%)
+          ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
+          resolve(compressedBase64);
+        };
+        img.onerror = (err) => reject(err);
+      };
+      reader.onerror = (err) => reject(err);
+    });
+  };
+
+  const processFile = async (file: File) => {
     if (!file || !file.type.startsWith("image/")) return;
+    
+    // 1. Aperçu immédiat (pour l'utilisateur)
     setImagePreview(URL.createObjectURL(file));
     setResult(null);
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = async () => {
-      const base64 = reader.result as string;
-      setBase64Image(base64);
-      generatePosts(base64);
-    };
+    setLoading(true); // On lance le chargement tout de suite
+
+    try {
+      // 2. Compression silencieuse avant envoi
+      const compressedBase64 = await compressImage(file);
+      setBase64Image(compressedBase64); // On sauvegarde la version légère
+      
+      // 3. Envoi à l'IA
+      generatePosts(compressedBase64);
+    } catch (error) {
+      alert("Erreur lors du traitement de l'image.");
+      setLoading(false);
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
@@ -91,7 +134,6 @@ export default function Home() {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  // --- NOUVELLE FONCTION COPIE EMAIL ---
   const copyEmail = () => {
     navigator.clipboard.writeText("raventech75@gmail.com");
     setEmailCopied(true);
@@ -112,7 +154,7 @@ export default function Home() {
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 z-0"></div>
       <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] rounded-full bg-orange-600/20 blur-[120px] pointer-events-none"></div>
 
-      {/* BOUTON CONTACT (Haut Droite) */}
+      {/* BOUTON CONTACT */}
       <button 
         onClick={() => setShowFeedback(true)}
         className="fixed top-6 right-6 z-50 bg-slate-900 border border-slate-700 hover:border-orange-500 text-slate-300 hover:text-white px-4 py-2 rounded-full text-sm font-bold shadow-xl transition-all flex items-center gap-2 hover:scale-105"
@@ -120,41 +162,21 @@ export default function Home() {
         <span>📩</span> <span className="hidden sm:inline">Contact / Idée</span>
       </button>
 
-      {/* --- NOUVELLE MODALE CONTACT (SIMPLE) --- */}
+      {/* MODALE CONTACT */}
       {showFeedback && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
             <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl relative text-center">
                 <button onClick={() => setShowFeedback(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white">✕</button>
-                
-                <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
-                    📬
-                </div>
-
+                <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">📬</div>
                 <h2 className="text-2xl font-bold mb-2 text-white">Contactez-nous</h2>
-                <p className="text-slate-400 text-sm mb-6">
-                    Une idée d'amélioration ? Un bug ? <br/>
-                    Copiez notre adresse et écrivez-nous !
-                </p>
-                
-                {/* BLOC EMAIL À COPIER */}
+                <p className="text-slate-400 text-sm mb-6">Une idée d'amélioration ? Un bug ? <br/> Copiez notre adresse et écrivez-nous !</p>
                 <div className="bg-black/50 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-4 mb-6 group hover:border-orange-500/50 transition-colors">
-                    <span className="text-orange-400 font-mono text-sm sm:text-base font-bold truncate">
-                        raventech75@gmail.com
-                    </span>
-                    <button 
-                        onClick={copyEmail}
-                        className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition-colors whitespace-nowrap"
-                    >
+                    <span className="text-orange-400 font-mono text-sm sm:text-base font-bold truncate">raventech75@gmail.com</span>
+                    <button onClick={copyEmail} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition-colors whitespace-nowrap">
                         {emailCopied ? "✅ Copié !" : "📋 Copier"}
                     </button>
                 </div>
-                
-                <button 
-                    onClick={() => setShowFeedback(false)}
-                    className="text-slate-500 hover:text-white text-sm underline underline-offset-4"
-                >
-                    Fermer
-                </button>
+                <button onClick={() => setShowFeedback(false)} className="text-slate-500 hover:text-white text-sm underline underline-offset-4">Fermer</button>
             </div>
         </div>
       )}
@@ -171,7 +193,7 @@ export default function Home() {
           </p>
         </div>
 
-        {/* --- ZONE CONFIG --- */}
+        {/* ZONE CONFIG */}
         {!result && !loading && (
           <div className="max-w-3xl mx-auto mb-10 bg-slate-900/50 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-2xl animate-fade-in-up">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -215,7 +237,7 @@ export default function Home() {
              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700">
                <div className="bg-gradient-to-r from-orange-500 to-pink-600 h-full rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
              </div>
-             <p className="text-orange-400 mt-4 font-mono text-xs animate-pulse tracking-widest uppercase">Rédaction par l'IA...</p>
+             <p className="text-orange-400 mt-4 font-mono text-xs animate-pulse tracking-widest uppercase">Analyse IA (Compression auto)...</p>
            </div>
         )}
 
@@ -268,7 +290,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* --- BARRE D'ACTION (REGENERATE) --- */}
+        {/* REGENERATE */}
         {result && (
             <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 flex gap-4 bg-slate-900/90 backdrop-blur-xl p-2 rounded-full border border-slate-700 shadow-2xl z-50">
                 <button onClick={() => { setResult(null); setImagePreview(null); setBase64Image(null); }} className="px-6 py-3 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition-all font-bold text-sm">🗑️ Effacer</button>

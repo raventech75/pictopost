@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@vercel/analytics": "^1.6.1",
+    "autoprefixer": "^10.4.23",
     "next": "16.1.4",
     "openai": "^6.16.0",
     "react": "19.2.3",

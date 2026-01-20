@@ -42,6 +42,14 @@ export default function Home() {
   }, [loading]);
 
   const generatePosts = async (b64: string) => {
+    // DOUBLE SÉCURITÉ : Vérification de la taille de la chaîne Base64
+    // 1 caractère = 1 octet environ. Si > 4 millions (~4Mo), on arrête tout.
+    if (b64.length > 4000000) {
+      alert("L'image est encore trop lourde même compressée. Essayez une autre photo.");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       const response = await fetch("/api/generate", {
@@ -51,8 +59,7 @@ export default function Home() {
       });
       
       if (!response.ok) {
-        // Gestion spécifique de l'erreur "Trop gros"
-        if (response.status === 413) throw new Error("Image trop lourde même après compression.");
+        if (response.status === 413) throw new Error("Image trop lourde pour le serveur.");
         throw new Error("Erreur lors de la génération.");
       }
       
@@ -65,7 +72,7 @@ export default function Home() {
     }
   };
 
-  // --- NOUVEAU : FONCTION DE COMPRESSION MAGIQUE ---
+  // --- COMPRESSION AGRESSIVE (JPEG 60%) ---
   const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -74,19 +81,27 @@ export default function Home() {
         const img = new Image();
         img.src = event.target?.result as string;
         img.onload = () => {
-          // On crée un canvas pour redessiner l'image en plus petit
           const canvas = document.createElement("canvas");
           const ctx = canvas.getContext("2d");
           
-          // Calcul des nouvelles dimensions (Max 800px de large pour Vercel)
+          // On réduit la taille max à 800px (Suffisant pour GPT-4o)
           const MAX_WIDTH = 800;
-          const scaleSize = MAX_WIDTH / img.width;
-          canvas.width = MAX_WIDTH;
-          canvas.height = img.height * scaleSize;
+          let width = img.width;
+          let height = img.height;
 
-          // Dessin et compression (Qualité 0.7 = 70%)
-          ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-          const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
+          if (width > MAX_WIDTH) {
+            height = height * (MAX_WIDTH / width);
+            width = MAX_WIDTH;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+
+          // Dessin
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          // FORCE LE JPEG (Plus léger que PNG) + QUALITÉ 0.6 (60%)
+          const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
           resolve(compressedBase64);
         };
         img.onerror = (err) => reject(err);
@@ -97,18 +112,22 @@ export default function Home() {
 
   const processFile = async (file: File) => {
     if (!file || !file.type.startsWith("image/")) return;
+
+    // ALERTE IMMÉDIATE SI FICHIER D'ORIGINE GIGANTESQUE (> 10Mo)
+    if (file.size > 10 * 1024 * 1024) {
+      alert("Votre photo est vraiment trop grosse (>10Mo). Veuillez la réduire un peu avant.");
+      return;
+    }
     
-    // 1. Aperçu immédiat (pour l'utilisateur)
     setImagePreview(URL.createObjectURL(file));
     setResult(null);
-    setLoading(true); // On lance le chargement tout de suite
+    setLoading(true);
 
     try {
-      // 2. Compression silencieuse avant envoi
+      // Compression
       const compressedBase64 = await compressImage(file);
-      setBase64Image(compressedBase64); // On sauvegarde la version légère
-      
-      // 3. Envoi à l'IA
+      setBase64Image(compressedBase64);
+      // Envoi
       generatePosts(compressedBase64);
     } catch (error) {
       alert("Erreur lors du traitement de l'image.");
@@ -221,7 +240,11 @@ export default function Home() {
                 <input type="file" accept="image/*" onChange={handleFileInput} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                 <div className="flex flex-col items-center justify-center space-y-4 pointer-events-none">
                     <div className={`p-4 rounded-full bg-slate-800 transition-transform ${isDragging ? "scale-110" : "group-hover:scale-110"}`}><span className="text-4xl">📸</span></div>
-                    <p className="text-lg font-bold text-white">{isDragging ? "Lâchez tout !" : "Cliquez ou glissez une photo"}</p>
+                    <div className="text-center">
+                        <p className="text-lg font-bold text-white">{isDragging ? "Lâchez tout !" : "Cliquez ou glissez une photo"}</p>
+                        {/* INDICATION CLAIRE DE LA LIMITE */}
+                        <p className="text-xs text-slate-500 mt-2 font-mono uppercase tracking-wide">JPG, PNG • Max 10 Mo</p>
+                    </div>
                 </div>
             </div>
           </div>
@@ -237,7 +260,7 @@ export default function Home() {
              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700">
                <div className="bg-gradient-to-r from-orange-500 to-pink-600 h-full rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
              </div>
-             <p className="text-orange-400 mt-4 font-mono text-xs animate-pulse tracking-widest uppercase">Analyse IA (Compression auto)...</p>
+             <p className="text-orange-400 mt-4 font-mono text-xs animate-pulse tracking-widest uppercase">Optimisation & Analyse IA...</p>
            </div>
         )}
 

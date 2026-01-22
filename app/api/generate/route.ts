@@ -15,24 +15,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Aucune image fournie" }, { status: 400 });
     }
 
-    // --- 1. VÉRIFICATION DES CRÉDITS (SAAS) ---
+    // --- SÉCURITÉ CRÉDITS (SAAS) ---
     if (userId) {
-      const { data: user, error: userError } = await supabase
-        .from('profiles')
-        .select('credits_remaining, is_pro')
-        .eq('id', userId)
-        .single();
-
-      if (userError || !user || (user.credits_remaining <= 0 && !user.is_pro)) {
-        return NextResponse.json({ error: "Crédits insuffisants. Rechargez sur le site." }, { status: 403 });
-      }
+        const { data: user } = await supabase.from('profiles').select('credits_remaining').eq('id', userId).single();
+        if (!user || user.credits_remaining <= 0) {
+            return NextResponse.json({ error: "Plus de crédits disponibles." }, { status: 403 });
+        }
     }
 
     const contextCity = city ? `Ville : ${city}` : "";
     const contextName = businessName ? `Nom du Commerce : ${businessName}` : "Nom générique (ex: Votre expert)";
     const contextTone = tone ? `Ton : ${tone}` : "Ton : Standard";
 
-    // --- 2. TON PROMPT EXPERT ---
+    // --- TON PROMPT EXPERT AUGMENTÉ ---
     const systemPrompt = `
       Tu es le meilleur Community Manager de France.
       CONTEXTE : ${contextName}. ${contextCity}. ${contextTone}.
@@ -47,11 +42,15 @@ export async function POST(req: Request) {
       RÈGLES FACEBOOK :
       - Ton "Quartier / Communauté". Rassurant.
 
+      RÈGLES GOOGLE BUSINESS (NOUVEAU) :
+      - Très informatif, focus sur la ville ${city}. Utilise des mots clés pour le SEO local.
+
       JSON ATTENDU :
       {
         "tiktok": { "hook": "...", "caption": "...", "hashtags": "..." },
         "instagram": { "title": "...", "caption": "...", "hashtags": "..." },
-        "facebook": { "title": "...", "caption": "..." }
+        "facebook": { "title": "...", "caption": "..." },
+        "google": { "caption": "..." }
       }
     `;
 
@@ -63,7 +62,7 @@ export async function POST(req: Request) {
         {
           role: "user",
           content: [
-            { type: "text", text: "Génère les posts." },
+            { type: "text", text: "Génère les contenus." },
             { type: "image_url", image_url: { url: imageBase64 } },
           ],
         },
@@ -74,16 +73,23 @@ export async function POST(req: Request) {
     const content = response.choices[0].message.content;
     const jsonContent = JSON.parse(content || "{}");
 
-    // --- 3. DÉCRÉMENTATION DES CRÉDITS (SAAS) ---
+    // --- DÉCRÉMENTATION & HISTORIQUE (SAAS) ---
     if (userId) {
-      // On utilise la fonction RPC créée précédemment ou un update simple
-      await supabase.rpc('decrement_credits', { user_id: userId });
+        // Décompte
+        await supabase.rpc('decrement_credits', { user_id: userId });
+        // Sauvegarde historique
+        await supabase.from('draft_posts').insert([{ 
+            user_id: userId, 
+            image_url: imageBase64, 
+            caption: jsonContent.instagram.caption,
+            status: 'draft' 
+        }]);
     }
 
     return NextResponse.json(jsonContent);
 
   } catch (error: any) {
-    console.error("Erreur API Generate:", error);
-    return NextResponse.json({ error: error.message || "Erreur serveur" }, { status: 500 });
+    console.error("Erreur API:", error);
+    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }

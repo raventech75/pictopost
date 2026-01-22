@@ -9,12 +9,12 @@ export default function Home() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [base64Image, setBase64Image] = useState<string | null>(null);
   
-  // ÉTATS SAAS
+  // --- ÉTATS SAAS ---
   const [profile, setProfile] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [logoUploading, setLogoUploading] = useState(false);
 
-  // CHAMPS FORMULAIRE
+  // Champs (AVEC ADRESSE ET HORAIRES)
   const [businessName, setBusinessName] = useState("");
   const [city, setCity] = useState("");
   const [address, setAddress] = useState("");
@@ -35,7 +35,7 @@ export default function Home() {
     { id: "Urgence", label: "🔥 Promo" },
   ];
 
-  // --- 1. INITIALISATION ROBUSTE (CORRECTION DU BUG D'AFFICHAGE) ---
+  // --- INITIALISATION SESSION ---
   useEffect(() => {
     async function initSession() {
       let userId = localStorage.getItem("pictopost_user_id");
@@ -47,28 +47,25 @@ export default function Home() {
         if (data) {
           currentProfile = data;
         } else {
-          // L'ID est dans le navigateur mais pas dans la base (ex: DB effacée)
-          console.log("ID invalide, création d'un nouveau profil...");
-          userId = null; // On force la création
+          // ID invalide ou supprimé de la BDD, on reset
+          userId = null; 
         }
       }
 
       // 2. Si pas d'ID ou ID invalide, on crée un nouveau profil
       if (!userId) {
-        const { data, error } = await supabase.from('profiles').insert([{ credits_remaining: 3 }]).select().single();
+        const { data } = await supabase.from('profiles').insert([{ credits_remaining: 3 }]).select().single();
         if (data) {
           userId = data.id;
-          localStorage.setItem("pictopost_user_id", userId);
+          // CORRECTION ICI : On utilise data.id directement pour satisfaire TypeScript
+          localStorage.setItem("pictopost_user_id", data.id);
           currentProfile = data;
-        } else if (error) {
-          console.error("Erreur création profil:", error);
         }
       }
 
-      // 3. Mise à jour de l'état
       if (currentProfile) {
         setProfile(currentProfile);
-        // Pré-remplissage des champs si existants
+        // Pré-remplissage
         if (currentProfile.business_name) setBusinessName(currentProfile.business_name);
         if (currentProfile.business_city) setCity(currentProfile.business_city);
         if (currentProfile.business_address) setAddress(currentProfile.business_address);
@@ -116,17 +113,17 @@ export default function Home() {
 
   const generatePosts = async (b64: string) => {
     if (profile && profile.credits_remaining <= 0) {
-      alert("⚠️ Crédits épuisés !");
+      alert("⚠️ Plus de crédits !");
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      // Sauvegarde des infos contextuelles
+      // SAUVEGARDE DES INFOS DANS LE PROFIL AVANT GÉNÉRATION
       await supabase.from('profiles').update({ 
         business_name: businessName, 
-        business_city: city, 
-        business_address: address, 
+        business_city: city,
+        business_address: address,
         business_hours: hours 
       }).eq('id', profile.id);
 
@@ -215,7 +212,7 @@ export default function Home() {
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 z-0"></div>
       <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] rounded-full bg-orange-600/20 blur-[120px] pointer-events-none"></div>
 
-      {/* HEADER SAAS (AFFICHAGE CONDITIONNEL OU CHARGEMENT) */}
+      {/* HEADER SAAS */}
       <div className="relative z-50 flex flex-wrap justify-center gap-4 pt-6 animate-fade-in min-h-[60px]">
         {profile ? (
           <>
@@ -239,7 +236,7 @@ export default function Home() {
             </a>
           </>
         ) : (
-          // Squelette de chargement pour éviter le saut d'image
+          // Squelette de chargement
           <div className="animate-pulse flex gap-4">
              <div className="h-9 w-24 bg-slate-800 rounded-full"></div>
              <div className="h-9 w-32 bg-slate-800 rounded-full"></div>
@@ -320,7 +317,7 @@ export default function Home() {
             </div>
 
             <div onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} className={`relative border-2 border-dashed rounded-2xl p-10 text-center transition-all cursor-pointer ${isDragging ? "border-orange-500 bg-orange-500/10" : "border-slate-700 hover:border-orange-400/50"}`}>
-                <input type="file" accept="image/*" onChange={(e) => processFile(e.target.files![0])} className="absolute inset-0 opacity-0 cursor-pointer" />
+                <input type="file" accept="image/*" onChange={handleFileInput} className="absolute inset-0 opacity-0 cursor-pointer" />
                 <div className="flex flex-col items-center gap-4 pointer-events-none">
                     <div className="p-4 rounded-full bg-slate-800 text-4xl">📸</div>
                     <p className="text-lg font-bold">Cliquez ou glissez une photo</p>

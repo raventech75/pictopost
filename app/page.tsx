@@ -9,12 +9,12 @@ export default function Home() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [base64Image, setBase64Image] = useState<string | null>(null);
   
-  // --- ÉTATS SAAS ---
+  // ÉTATS SAAS
   const [profile, setProfile] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [logoUploading, setLogoUploading] = useState(false);
 
-  // Champs (AVEC ADRESSE ET HORAIRES)
+  // CHAMPS FORMULAIRE
   const [businessName, setBusinessName] = useState("");
   const [city, setCity] = useState("");
   const [address, setAddress] = useState("");
@@ -35,30 +35,44 @@ export default function Home() {
     { id: "Urgence", label: "🔥 Promo" },
   ];
 
-  // --- INITIALISATION SESSION ---
+  // --- 1. INITIALISATION ROBUSTE (CORRECTION DU BUG D'AFFICHAGE) ---
   useEffect(() => {
     async function initSession() {
       let userId = localStorage.getItem("pictopost_user_id");
-      let currentProfile;
+      let currentProfile = null;
 
-      if (!userId) {
-        const { data } = await supabase.from('profiles').insert([{ credits_remaining: 3 }]).select().single();
-        if (data) {
-          userId = data.id;
-          localStorage.setItem("pictopost_user_id", userId!);
-          currentProfile = data;
-        }
-      } else {
+      // 1. Si on a un ID, on vérifie s'il existe VRAIMENT en base
+      if (userId) {
         const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
-        currentProfile = data;
+        if (data) {
+          currentProfile = data;
+        } else {
+          // L'ID est dans le navigateur mais pas dans la base (ex: DB effacée)
+          console.log("ID invalide, création d'un nouveau profil...");
+          userId = null; // On force la création
+        }
       }
 
+      // 2. Si pas d'ID ou ID invalide, on crée un nouveau profil
+      if (!userId) {
+        const { data, error } = await supabase.from('profiles').insert([{ credits_remaining: 3 }]).select().single();
+        if (data) {
+          userId = data.id;
+          localStorage.setItem("pictopost_user_id", userId);
+          currentProfile = data;
+        } else if (error) {
+          console.error("Erreur création profil:", error);
+        }
+      }
+
+      // 3. Mise à jour de l'état
       if (currentProfile) {
         setProfile(currentProfile);
-        setBusinessName(currentProfile.business_name || "");
-        setCity(currentProfile.business_city || "");
-        setAddress(currentProfile.business_address || "");
-        setHours(currentProfile.business_hours || "");
+        // Pré-remplissage des champs si existants
+        if (currentProfile.business_name) setBusinessName(currentProfile.business_name);
+        if (currentProfile.business_city) setCity(currentProfile.business_city);
+        if (currentProfile.business_address) setAddress(currentProfile.business_address);
+        if (currentProfile.business_hours) setHours(currentProfile.business_hours);
         fetchHistory(currentProfile.id);
       }
     }
@@ -102,17 +116,17 @@ export default function Home() {
 
   const generatePosts = async (b64: string) => {
     if (profile && profile.credits_remaining <= 0) {
-      alert("⚠️ Plus de crédits !");
+      alert("⚠️ Crédits épuisés !");
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      // SAUVEGARDE DES INFOS AVANT GÉNÉRATION
+      // Sauvegarde des infos contextuelles
       await supabase.from('profiles').update({ 
         business_name: businessName, 
-        business_city: city,
-        business_address: address,
+        business_city: city, 
+        business_address: address, 
         business_hours: hours 
       }).eq('id', profile.id);
 
@@ -201,24 +215,37 @@ export default function Home() {
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 z-0"></div>
       <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] rounded-full bg-orange-600/20 blur-[120px] pointer-events-none"></div>
 
-      {/* HEADER SAAS */}
-      {profile && (
-        <div className="relative z-50 flex flex-wrap justify-center gap-4 pt-6 animate-fade-in">
-          <div className="bg-slate-900/80 border border-slate-800 backdrop-blur-md px-4 py-2 rounded-full flex items-center gap-2">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Crédits</span>
-            <span className={`text-sm font-black ${profile.credits_remaining > 0 ? 'text-orange-500' : 'text-red-500'}`}>
-              {profile.credits_remaining} restants
-            </span>
+      {/* HEADER SAAS (AFFICHAGE CONDITIONNEL OU CHARGEMENT) */}
+      <div className="relative z-50 flex flex-wrap justify-center gap-4 pt-6 animate-fade-in min-h-[60px]">
+        {profile ? (
+          <>
+            <div className="bg-slate-900/80 border border-slate-800 backdrop-blur-md px-4 py-2 rounded-full flex items-center gap-2">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Crédits</span>
+              <span className={`text-sm font-black ${profile.credits_remaining > 0 ? 'text-orange-500' : 'text-red-500'}`}>
+                {profile.credits_remaining} restants
+              </span>
+            </div>
+            
+            <label className="cursor-pointer bg-slate-900/80 border border-slate-800 px-4 py-2 rounded-full text-xs font-bold hover:border-orange-500 transition-all flex items-center gap-2 backdrop-blur-md">
+              <span>{logoUploading ? "⏳..." : profile.logo_url ? "✅ Logo OK" : "🖼️ Mon Logo"}</span>
+              <input type="file" onChange={handleLogoUpload} className="hidden" accept="image/*" />
+            </label>
+
+            <a 
+              href={`https://wa.me/14155238886?text=Lier%20mon%20compte%20${profile.id}`}
+              className="bg-green-600/20 border border-green-500/50 hover:bg-green-600/30 text-green-400 px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2 shadow-lg"
+            >
+              <span>📲</span> {profile.whatsapp_number ? "WhatsApp Lié" : "Lier WhatsApp"}
+            </a>
+          </>
+        ) : (
+          // Squelette de chargement pour éviter le saut d'image
+          <div className="animate-pulse flex gap-4">
+             <div className="h-9 w-24 bg-slate-800 rounded-full"></div>
+             <div className="h-9 w-32 bg-slate-800 rounded-full"></div>
           </div>
-          <label className="cursor-pointer bg-slate-900/80 border border-slate-800 px-4 py-2 rounded-full text-xs font-bold hover:border-orange-500 transition-all flex items-center gap-2 backdrop-blur-md">
-             <span>{logoUploading ? "⏳..." : profile.logo_url ? "✅ Logo OK" : "🖼️ Mon Logo"}</span>
-             <input type="file" onChange={handleLogoUpload} className="hidden" accept="image/*" />
-          </label>
-          <a href={`https://wa.me/14155238886?text=Lier%20mon%20compte%20${profile.id}`} className="bg-green-600/20 border border-green-500/50 hover:bg-green-600/30 text-green-400 px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2 shadow-lg">
-            <span>📲</span> {profile.whatsapp_number ? "WhatsApp Lié" : "Lier WhatsApp"}
-          </a>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* BOUTON CONTACT */}
       <button onClick={() => setShowFeedback(true)} className="fixed top-6 right-6 z-50 bg-slate-900 border border-slate-700 hover:border-orange-500 text-slate-300 hover:text-white px-4 py-2 rounded-full text-sm font-bold shadow-xl transition-all">
@@ -242,6 +269,7 @@ export default function Home() {
 
       <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 relative z-10">
         
+        {/* HEADER TITRE */}
         <div className="text-center mb-10 space-y-4">
           <h1 className="text-6xl md:text-8xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-white via-orange-100 to-orange-400">
             Pictopost
@@ -251,6 +279,7 @@ export default function Home() {
           </p>
         </div>
 
+        {/* GUIDE D'ACTIVATION WHATSAPP (Affiche seulement si profil chargé mais pas de tel) */}
         {profile && !profile.whatsapp_number && !result && !loading && (
           <div className="max-w-md mx-auto mb-10 bg-slate-900/50 border border-slate-800 rounded-3xl p-6 backdrop-blur-md text-left animate-fade-in shadow-2xl">
             <h3 className="text-xs font-bold text-orange-500 mb-4 uppercase tracking-widest flex items-center gap-2">🚀 Activation WhatsApp</h3>
@@ -262,6 +291,7 @@ export default function Home() {
           </div>
         )}
 
+        {/* ZONE CONFIGURATION */}
         {!result && !loading && (
           <div className="max-w-3xl mx-auto mb-10 bg-slate-900/50 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-2xl animate-fade-in-up">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 text-left">
@@ -290,7 +320,7 @@ export default function Home() {
             </div>
 
             <div onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} className={`relative border-2 border-dashed rounded-2xl p-10 text-center transition-all cursor-pointer ${isDragging ? "border-orange-500 bg-orange-500/10" : "border-slate-700 hover:border-orange-400/50"}`}>
-                <input type="file" accept="image/*" onChange={handleFileInput} className="absolute inset-0 opacity-0 cursor-pointer" />
+                <input type="file" accept="image/*" onChange={(e) => processFile(e.target.files![0])} className="absolute inset-0 opacity-0 cursor-pointer" />
                 <div className="flex flex-col items-center gap-4 pointer-events-none">
                     <div className="p-4 rounded-full bg-slate-800 text-4xl">📸</div>
                     <p className="text-lg font-bold">Cliquez ou glissez une photo</p>
@@ -299,6 +329,7 @@ export default function Home() {
           </div>
         )}
 
+        {/* LOADER */}
         {loading && imagePreview && (
            <div className="max-w-xl mx-auto flex flex-col items-center justify-center mt-8 bg-slate-900/50 p-8 rounded-3xl border border-slate-800">
              <div className="relative mb-6 w-32 h-32">
@@ -312,8 +343,10 @@ export default function Home() {
            </div>
         )}
 
+        {/* RESULTATS INTEGRÉS */}
         {result && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-10 items-start pb-20 text-left">
+            {/* TIKTOK */}
             <div className="group relative bg-black border border-slate-800 rounded-3xl overflow-hidden hover:border-orange-500/50 transition-all duration-500">
               <div className="h-1 w-full bg-gradient-to-r from-pink-500 via-red-500 to-yellow-500"></div>
               <div className="p-5">
@@ -327,6 +360,7 @@ export default function Home() {
               </div>
             </div>
 
+            {/* INSTA */}
             <div className="group relative bg-gradient-to-b from-slate-900 to-black border border-slate-800 rounded-3xl overflow-hidden hover:border-orange-500/50 transition-all">
               <div className="h-1 w-full bg-gradient-to-r from-orange-400 to-purple-600"></div>
               <div className="p-5">
@@ -341,6 +375,7 @@ export default function Home() {
               </div>
             </div>
 
+            {/* GOOGLE MAPS */}
             <div className="group relative bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden hover:border-blue-500/50 transition-all">
                <div className="h-1 w-full bg-blue-600"></div>
                <div className="p-5">
@@ -357,6 +392,7 @@ export default function Home() {
           </div>
         )}
 
+        {/* HISTORIQUE */}
         {history.length > 0 && !result && !loading && (
           <div className="mt-20 text-left animate-fade-in-up">
             <h3 className="text-xl font-bold mb-6 flex items-center gap-2">📂 Mes dernières créations</h3>
@@ -374,6 +410,7 @@ export default function Home() {
           </div>
         )}
 
+        {/* BARRE DE CONTRÔLE BASSE */}
         {result && (
             <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 flex gap-4 bg-slate-900/90 backdrop-blur-xl p-2 rounded-full border border-slate-700 shadow-2xl z-50">
                 <button onClick={() => { setResult(null); setImagePreview(null); setBase64Image(null); }} className="px-6 py-3 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition-all font-bold text-sm">🗑️ Effacer</button>

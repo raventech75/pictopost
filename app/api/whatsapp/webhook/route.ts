@@ -2,9 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import twilio from 'twilio';
 import OpenAI from 'openai';
 import { supabase } from '@/lib/supabase';
+import { v2 as cloudinary } from 'cloudinary';
 
+// Configuration des clients
 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+  secure: true,
+});
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,20 +22,16 @@ export async function POST(req: NextRequest) {
     const body = formData.get('Body')?.toString().trim() || "";
     const mediaUrl = formData.get('MediaUrl0') as string;
 
-    // 1. Vérification utilisateur dans Supabase
-    const { data: user, error: userError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('whatsapp_number', from)
-      .single();
-
-    if (!user || userError) {
-      await sendWhatsApp(from, "❌ Numéro non reconnu. Vérifiez votre profil sur Pictopost.");
+    // 1. Vérification utilisateur
+    const { data: user } = await supabase.from('profiles').select('*').eq('whatsapp_number', from).single();
+    if (!user) {
+      await sendWhatsApp(from, "❌ Numéro non reconnu sur Pictopost.");
       return NextResponse.json({ success: false });
     }
 
-    // 2. Gestion de la validation "OUI"
+    // 2. Gestion de la validation "OUI" (PUBLICATION)
     if (body.toUpperCase() === 'OUI') {
+      // On récupère le dernier brouillon en attente
       const { data: draft } = await supabase
         .from('draft_posts')
         .select('*')
@@ -37,42 +42,53 @@ export async function POST(req: NextRequest) {
         .single();
 
       if (draft) {
-        await sendWhatsApp(from, "🚀 Publication en cours...");
-        // Mettre ici ton appel API Instagram réel plus tard
+        await sendWhatsApp(from, "🚀 Je publie l'image retouchée et le texte sur vos réseaux...");
+        
+        // --- ZONE DE PUBLICATION ---
+        // C'est ICI que tu mettras ton appel à l'API Instagram/Facebook plus tard.
+        // Tu as accès à : draft.image_url (l'URL Cloudinary propre) et draft.caption (le texte)
+        console.log("PUBLIER CECI :", draft.image_url, draft.caption);
+        // ---------------------------
+
+        // On marque comme publié dans la DB
         await supabase.from('draft_posts').update({ status: 'published' }).eq('id', draft.id);
-        await sendWhatsApp(from, "✅ Post publié avec succès !");
+        await sendWhatsApp(from, "✅ C'est en ligne ! Retrouvez votre post sur votre fil.");
       } else {
-        await sendWhatsApp(from, "Aucun post en attente de validation.");
+        await sendWhatsApp(from, "Aucun post en attente.");
       }
       return NextResponse.json({ success: true });
     }
 
-    // 3. Traitement de l'image (Base64 pour OpenAI)
+    // 3. Traitement de l'image (NETTOYAGE + RÉDACTION)
     if (mediaUrl) {
-      await sendWhatsApp(from, "🤖 Analyse de l'image par l'IA...");
+      await sendWhatsApp(from, "🎨 J'ai reçu l'image ! Je la nettoie, je l'embellis et je rédige le texte. Un instant...");
 
-      // Téléchargement sécurisé de l'image via Twilio
+      // A. Téléchargement depuis Twilio
       const responseMedia = await fetch(mediaUrl, {
-        headers: {
-          Authorization: `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}`,
-        },
+        headers: { Authorization: `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}` },
+      });
+      const buffer = await responseMedia.arrayBuffer();
+      const base64Image = `data:${responseMedia.headers.get('content-type')};base64,${Buffer.from(buffer).toString('base64')}`;
+
+      // B. MAGIE CLOUDINARY : Nettoyage et upload
+      // On applique une amélioration auto et une suppression de fond si besoin
+      const cloudinaryResponse = await cloudinary.uploader.upload(base64Image, {
+        folder: 'pictopost_uploads',
+        // Tu peux ajouter 'e_background_removal' si tu veux détourer l'objet
+        transformation: [{ effect: "improve:outdoor" }, { quality: "auto" }, { fetch_format: "auto" }]
       });
       
-      const buffer = await responseMedia.arrayBuffer();
-      const base64Image = Buffer.from(buffer).toString('base64');
-      const contentType = responseMedia.headers.get('content-type') || 'image/jpeg';
+      const finalImageUrl = cloudinaryResponse.secure_url; // L'URL permanente et propre
 
+      // C. Rédaction IA avec l'image propre (Optionnel : on peut envoyer l'originale à GPT si on préfère)
       const response = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
           {
             role: "user",
             content: [
-              { type: "text", text: `Rédige un post Instagram vendeur. Style : ${user.brand_tone || 'chaleureux'}` },
-              {
-                type: "image_url",
-                image_url: { url: `data:${contentType};base64,${base64Image}` },
-              },
+              { type: "text", text: `Rédige un post Instagram vendeur pour cette image. Ton : ${user.brand_tone || 'chaleureux'}. Utilise des emojis.` },
+              { type: "image_url", image_url: { url: base64Image } }, // On montre l'originale à GPT pour qu'il comprenne le contexte
             ],
           },
         ],
@@ -80,12 +96,13 @@ export async function POST(req: NextRequest) {
 
       const aiText = response.choices[0].message.content || "";
 
-      // Sauvegarde du brouillon
+      // D. Sauvegarde dans Supabase (Image propre + Texte)
       await supabase.from('draft_posts').insert([
-        { user_id: user.id, image_url: mediaUrl, caption: aiText }
+        { user_id: user.id, image_url: finalImageUrl, caption: aiText }
       ]);
 
-      await sendWhatsApp(from, `✨ *PROPOSITION :*\n\n"${aiText}"\n\n✅ Répondez *OUI* pour publier.`);
+      // E. Envoi de la proposition (On renvoie l'image propre pour validation)
+      await sendMediaWhatsApp(from, finalImageUrl, `✨ *PROPOSITION :*\n\n"${aiText}"\n\n✅ Répondez *OUI* pour publier cette image et ce texte.`);
     }
 
     return NextResponse.json({ success: true });
@@ -95,11 +112,19 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// Fonction utilitaire pour envoyer des messages texte
 async function sendWhatsApp(to: string, body: string) {
+  // NOTE : Remets process.env.TWILIO_PHONE_NUMBER une fois tes variables Vercel corrigées.
+  return twilioClient.messages.create({ from: 'whatsapp:+14155238886', to, body });
+}
+
+// NOUVELLE fonction utilitaire pour envoyer une IMAGE sur WhatsApp
+async function sendMediaWhatsApp(to: string, mediaUrl: string, body: string) {
+  // NOTE : Remets process.env.TWILIO_PHONE_NUMBER une fois tes variables Vercel corrigées.
   return twilioClient.messages.create({
-    // ON ÉCRIT LE NUMÉRO EN DUR ICI POUR LE TEST
-    from: 'whatsapp:+14155238886', // ESSAYEZ CE NUMÉRO (Le numéro standard Sandbox Twilio)
+    from: 'whatsapp:+14155238886',
     to: to,
     body: body,
+    mediaUrl: [mediaUrl] // C'est ça qui affiche l'image dans WhatsApp
   });
 }

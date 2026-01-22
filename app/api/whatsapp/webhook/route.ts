@@ -33,10 +33,12 @@ export async function POST(req: NextRequest) {
       const userId = body.split(" ").pop();
       console.log(`Tentative de liaison pour l'ID: ${userId}`);
       
-      const { error: updateError } = await supabase
+      const { data: updatedUser, error: updateError } = await supabase
         .from('profiles')
         .update({ whatsapp_number: from })
-        .eq('id', userId);
+        .eq('id', userId)
+        .select()
+        .single();
 
       if (updateError) {
         console.error("Erreur lors de la liaison:", updateError);
@@ -44,7 +46,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false });
       }
 
-      await sendWhatsApp(from, "✅ Félicitations ! Votre compte est lié. Je suis désormais votre assistant marketing personnel. Envoyez-moi une photo pour commencer !");
+      await sendWhatsApp(from, `✅ Félicitations ! Votre compte est lié. Solde : ${updatedUser.credits_remaining} crédits. Envoyez-moi une photo pour commencer !`);
       return NextResponse.json({ success: true });
     }
 
@@ -62,7 +64,6 @@ export async function POST(req: NextRequest) {
     }
 
     // 4. LOGIQUE D'IA INTERACTIVE (MODIFICATION DU TEXTE)
-    // Si l'utilisateur envoie du texte sans image et que ce n'est pas "OUI"
     if (body && !mediaUrl && body.toUpperCase() !== 'OUI') {
       console.log("L'utilisateur demande une modification...");
       
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
         const newCaption = aiResponse.choices[0].message.content || "";
         
         await supabase.from('draft_posts').update({ caption: newCaption }).eq('id', lastDraft.id);
-        await sendWhatsApp(from, `✨ Voici la version modifiée :\n\n"${newCaption}"\n\n✅ Répondez OUI pour valider ou demandez une autre modif !`);
+        await sendWhatsApp(from, `✨ Voici la version modifiée :\n\n"${newCaption}"\n\n✅ Répondez OUI pour valider ou demandez une modif.\n(Solde : ${user.credits_remaining} crédits)`);
         return NextResponse.json({ success: true });
       }
     }
@@ -111,24 +112,21 @@ export async function POST(req: NextRequest) {
 
       await sendWhatsApp(from, "🚀 Envoi sur vos réseaux sociaux en cours...");
       
-      // Simuler l'appel API Instagram/Facebook ici
       await supabase.from('draft_posts').update({ status: 'published' }).eq('id', draft.id);
       
-      await sendWhatsApp(from, "✅ C'est en ligne ! Votre communauté va adorer.");
+      await sendWhatsApp(from, `✅ C'est en ligne ! Votre communauté va adorer.\n(Solde : ${user.credits_remaining} crédits)`);
       return NextResponse.json({ success: true });
     }
 
     // 6. TRAITEMENT DE LA PHOTO (RETREIVE -> CLOUDINARY LOGO -> OPENAI)
     if (mediaUrl) {
-      // A. Vérification des crédits
       if (user.credits_remaining <= 0 && !user.is_pro) {
-        await sendWhatsApp(from, "⚠️ Vous avez épuisé vos crédits gratuits. Pour continuer à briller sur les réseaux, passez à l'offre Pro sur le site !");
+        await sendWhatsApp(from, "⚠️ Vous avez épuisé vos crédits gratuits. Pour continuer, passez à l'offre Pro sur le site !");
         return NextResponse.json({ success: false });
       }
 
       await sendWhatsApp(from, "🎨 Je prépare votre post (retouche + logo)...");
 
-      // B. Téléchargement sécurisé de l'image Twilio
       const responseMedia = await fetch(mediaUrl, {
         headers: {
           Authorization: `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}`,
@@ -137,15 +135,12 @@ export async function POST(req: NextRequest) {
       const buffer = await responseMedia.arrayBuffer();
       const base64Image = `data:${responseMedia.headers.get('content-type')};base64,${Buffer.from(buffer).toString('base64')}`;
 
-      // C. Configuration de la retouche Cloudinary avec Logo
       const transformations: any[] = [
         { effect: "improve:outdoor" },
         { quality: "auto" }
       ];
 
-      // INCUSTATION DU LOGO SI PRÉSENT
       if (user.logo_url) {
-        // On récupère l'ID public du logo dans Cloudinary
         const logoPublicId = user.logo_url.split('/').pop()?.split('.')[0];
         if (logoPublicId) {
           transformations.push({ 
@@ -164,7 +159,6 @@ export async function POST(req: NextRequest) {
         transformation: transformations
       });
 
-      // D. Analyse Vision et Rédaction par l'IA
       const visionRes = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
@@ -172,7 +166,7 @@ export async function POST(req: NextRequest) {
             role: "user",
             content: [
               { type: "text", text: `Rédige un post Instagram très vendeur pour ce commerce : ${user.business_name || 'mon client'}. Ville : ${user.business_city || ''}. Ton : ${user.brand_tone || 'Pro'}.` },
-              { type: "image_url", image_url: { url: base64Image } } // On analyse l'originale pour plus de détails
+              { type: "image_url", image_url: { url: base64Image } }
             ],
           },
         ],
@@ -180,7 +174,6 @@ export async function POST(req: NextRequest) {
 
       const caption = visionRes.choices[0].message.content || "";
 
-      // E. Sauvegarde et Décrémentation
       await supabase.from('draft_posts').insert([{
         user_id: user.id,
         image_url: cloudinaryRes.secure_url,
@@ -188,17 +181,21 @@ export async function POST(req: NextRequest) {
         status: 'draft'
       }]);
 
+      // Décrémentation et récupération du nouveau solde
       await supabase.rpc('decrement_credits', { user_id: user.id });
+      const { data: updatedBalance } = await supabase
+        .from('profiles')
+        .select('credits_remaining')
+        .eq('id', user.id)
+        .single();
 
-      // F. Réponse finale avec l'image retouchée
       await twilioClient.messages.create({
-        from: 'whatsapp:+14155238886', // Numéro Sandbox
+        from: 'whatsapp:+14155238886',
         to: from,
-        body: `✨ *PROPOSITION :*\n\n"${caption}"\n\n✅ Répondez *OUI* pour publier ou dites-moi ce qu'il faut changer !`,
+        body: `✨ *PROPOSITION :*\n\n"${caption}"\n\n✅ Répondez *OUI* pour publier.\n\n📉 Crédit utilisé. Solde restant : *${updatedBalance?.credits_remaining}*`,
         mediaUrl: [cloudinaryRes.secure_url]
       });
 
-      console.log("Post généré et envoyé avec succès.");
       return NextResponse.json({ success: true });
     }
 
@@ -206,12 +203,10 @@ export async function POST(req: NextRequest) {
 
   } catch (error: any) {
     console.error("ERREUR CRITIQUE WEBHOOK:", error);
-    // Optionnel : Envoyer un message d'erreur à l'utilisateur
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
-// FONCTION UTILITAIRE D'ENVOI
 async function sendWhatsApp(to: string, body: string) {
   try {
     return await twilioClient.messages.create({

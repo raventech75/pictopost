@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase"; // Import ajouté
+import { supabase } from "@/lib/supabase";
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
@@ -9,18 +9,15 @@ export default function Home() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [base64Image, setBase64Image] = useState<string | null>(null);
   
-  // --- ÉTATS AJOUTÉS (SaaS) ---
   const [profile, setProfile] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [logoUploading, setLogoUploading] = useState(false);
 
-  // Champs originaux
   const [city, setCity] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [tone, setTone] = useState("Standard");
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  // UX
   const [isDragging, setIsDragging] = useState(false);
   const [progress, setProgress] = useState(0);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -33,7 +30,7 @@ export default function Home() {
     { id: "Urgence", label: "🔥 Promo" },
   ];
 
-  // --- LOGIQUE SAAS : SESSION & HISTORIQUE ---
+  // LOGIQUE PERSISTANTE BASÉE SUR L'ID DE LA BASE DE DONNÉES
   useEffect(() => {
     async function initSession() {
       let userId = localStorage.getItem("pictopost_user_id");
@@ -119,7 +116,11 @@ export default function Home() {
       if (!response.ok) throw new Error("Erreur génération.");
       const data = await response.json();
       setResult(data);
-      if (profile) setProfile({...profile, credits_remaining: profile.credits_remaining - 1});
+      
+      // Rafraîchir les données du profil depuis la DB après génération
+      const { data: updatedProfile } = await supabase.from('profiles').select('*').eq('id', profile.id).single();
+      if (updatedProfile) setProfile(updatedProfile);
+      
       fetchHistory(profile.id);
     } catch (error: any) {
       alert("Oups : " + error.message);
@@ -199,13 +200,13 @@ export default function Home() {
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 z-0"></div>
       <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] rounded-full bg-orange-600/20 blur-[120px] pointer-events-none"></div>
 
-      {/* HEADER SAAS : CRÉDITS / LOGO / WHATSAPP */}
+      {/* HEADER SAAS : CRÉDITS LIÉS À L'ID UNIQUE DE L'UTILISATEUR */}
       {profile && (
         <div className="relative z-50 flex flex-wrap justify-center gap-4 pt-6 animate-fade-in">
           <div className="bg-slate-900/80 border border-slate-800 backdrop-blur-md px-4 py-2 rounded-full flex items-center gap-2">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Crédits</span>
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Solde (ID: {profile.id.substring(0,5)})</span>
             <span className={`text-sm font-black ${profile.credits_remaining > 0 ? 'text-orange-500' : 'text-red-500'}`}>
-              {profile.credits_remaining} restants
+              {profile.credits_remaining} crédits
             </span>
           </div>
           
@@ -223,12 +224,10 @@ export default function Home() {
         </div>
       )}
 
-      {/* BOUTON CONTACT */}
       <button onClick={() => setShowFeedback(true)} className="fixed top-6 right-6 z-50 bg-slate-900 border border-slate-700 hover:border-orange-500 text-slate-300 hover:text-white px-4 py-2 rounded-full text-sm font-bold shadow-xl transition-all">
         📩 Contact
       </button>
 
-      {/* MODALE CONTACT */}
       {showFeedback && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
             <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl relative text-center text-white">
@@ -245,7 +244,6 @@ export default function Home() {
 
       <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 relative z-10">
         
-        {/* HEADER TITRE */}
         <div className="text-center mb-10 space-y-4">
           <h1 className="text-6xl md:text-8xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-white via-orange-100 to-orange-400">
             Pictopost
@@ -255,7 +253,6 @@ export default function Home() {
           </p>
         </div>
 
-        {/* GUIDE D'ACTIVATION WHATSAPP */}
         {profile && !profile.whatsapp_number && !result && !loading && (
           <div className="max-w-md mx-auto mb-10 bg-slate-900/50 border border-slate-800 rounded-3xl p-6 backdrop-blur-md text-left animate-fade-in shadow-2xl">
             <h3 className="text-xs font-bold text-orange-500 mb-4 uppercase tracking-widest flex items-center gap-2">🚀 Activation WhatsApp</h3>
@@ -267,7 +264,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* ZONE CONFIG */}
         {!result && !loading && (
           <div className="max-w-3xl mx-auto mb-10 bg-slate-900/50 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-2xl animate-fade-in-up">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -299,12 +295,11 @@ export default function Home() {
           </div>
         )}
 
-        {/* LOADER */}
         {loading && imagePreview && (
            <div className="max-w-xl mx-auto flex flex-col items-center justify-center mt-8 bg-slate-900/50 p-8 rounded-3xl border border-slate-800">
              <div className="relative mb-6 w-32 h-32">
                <img src={imagePreview} className="w-full h-full object-cover rounded-xl border-2 border-slate-700 opacity-50" />
-               <div className="absolute inset-0 flex items-center justify-center"><div className="animate-spin rounded-full h-10 w-10 border-t-2 border-orange-500"></div></div>
+               <div className="absolute inset-0 flex items-center justify-center"><div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-orange-500"></div></div>
              </div>
              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700">
                <div className="bg-gradient-to-r from-orange-500 to-pink-600 h-full rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
@@ -313,10 +308,8 @@ export default function Home() {
            </div>
         )}
 
-        {/* RESULTATS INTEGRÉS */}
         {result && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-10 items-start pb-20 text-left">
-            {/* TIKTOK */}
             <div className="group relative bg-black border border-slate-800 rounded-3xl overflow-hidden hover:border-orange-500/50 transition-all duration-500">
               <div className="h-1 w-full bg-gradient-to-r from-pink-500 via-red-500 to-yellow-500"></div>
               <div className="p-5">
@@ -330,7 +323,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* INSTA */}
             <div className="group relative bg-gradient-to-b from-slate-900 to-black border border-slate-800 rounded-3xl overflow-hidden hover:border-orange-500/50 transition-all">
               <div className="h-1 w-full bg-gradient-to-r from-orange-400 to-purple-600"></div>
               <div className="p-5">
@@ -345,7 +337,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* GOOGLE BUSINESS PROFILE (NOUVEAU) */}
             <div className="group relative bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden hover:border-blue-500/50 transition-all">
                <div className="h-1 w-full bg-blue-600"></div>
                <div className="p-5">
@@ -362,7 +353,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* HISTORIQUE : MES DERNIÈRES CRÉATIONS */}
         {history.length > 0 && !result && !loading && (
           <div className="mt-20 text-left animate-fade-in-up">
             <h3 className="text-xl font-bold mb-6 flex items-center gap-2">📂 Mes dernières créations</h3>
@@ -380,7 +370,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* BARRE DE CONTRÔLE BASSE */}
         {result && (
             <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 flex gap-4 bg-slate-900/90 backdrop-blur-xl p-2 rounded-full border border-slate-700 shadow-2xl z-50">
                 <button onClick={() => { setResult(null); setImagePreview(null); setBase64Image(null); }} className="px-6 py-3 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition-all font-bold text-sm">🗑️ Effacer</button>

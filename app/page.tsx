@@ -9,15 +9,20 @@ export default function Home() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [base64Image, setBase64Image] = useState<string | null>(null);
   
+  // --- ÉTATS SAAS ---
   const [profile, setProfile] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [logoUploading, setLogoUploading] = useState(false);
 
-  const [city, setCity] = useState("");
+  // Champs (AVEC ADRESSE ET HORAIRES)
   const [businessName, setBusinessName] = useState("");
+  const [city, setCity] = useState("");
+  const [address, setAddress] = useState("");
+  const [hours, setHours] = useState("");
   const [tone, setTone] = useState("Standard");
+  
+  // UX
   const [copiedField, setCopiedField] = useState<string | null>(null);
-
   const [isDragging, setIsDragging] = useState(false);
   const [progress, setProgress] = useState(0);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -30,7 +35,7 @@ export default function Home() {
     { id: "Urgence", label: "🔥 Promo" },
   ];
 
-  // LOGIQUE PERSISTANTE BASÉE SUR L'ID DE LA BASE DE DONNÉES
+  // --- INITIALISATION SESSION ---
   useEffect(() => {
     async function initSession() {
       let userId = localStorage.getItem("pictopost_user_id");
@@ -50,8 +55,10 @@ export default function Home() {
 
       if (currentProfile) {
         setProfile(currentProfile);
-        if (currentProfile.business_name) setBusinessName(currentProfile.business_name);
-        if (currentProfile.business_city) setCity(currentProfile.business_city);
+        setBusinessName(currentProfile.business_name || "");
+        setCity(currentProfile.business_city || "");
+        setAddress(currentProfile.business_address || "");
+        setHours(currentProfile.business_hours || "");
         fetchHistory(currentProfile.id);
       }
     }
@@ -77,7 +84,7 @@ export default function Home() {
         });
         const updated = await res.json();
         setProfile({ ...profile, logo_url: updated.logo_url });
-        alert("Logo enregistré ! Il sera incrusté sur vos photos WhatsApp.");
+        alert("Logo enregistré !");
       } catch (err) { alert("Erreur logo"); }
       finally { setLogoUploading(false); }
     };
@@ -90,47 +97,45 @@ export default function Home() {
         setProgress((prev) => (prev >= 90 ? prev : prev + 10));
       }, 500);
       return () => clearInterval(interval);
-    } else {
-      setProgress(100);
-    }
+    } else { setProgress(100); }
   }, [loading]);
 
   const generatePosts = async (b64: string) => {
     if (profile && profile.credits_remaining <= 0) {
-      alert("⚠️ Plus de crédits ! Liez votre WhatsApp ou passez en Pro.");
-      setLoading(false);
-      return;
-    }
-    if (b64.length > 4000000) {
-      alert("L'image est trop lourde.");
+      alert("⚠️ Plus de crédits !");
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
+      // SAUVEGARDE DES INFOS AVANT GÉNÉRATION
+      await supabase.from('profiles').update({ 
+        business_name: businessName, 
+        business_city: city,
+        business_address: address,
+        business_hours: hours 
+      }).eq('id', profile.id);
+
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: b64, city, tone, businessName, userId: profile?.id }),
+        body: JSON.stringify({ 
+          imageBase64: b64, city, tone, businessName, address, hours, userId: profile?.id 
+        }),
       });
       if (!response.ok) throw new Error("Erreur génération.");
       const data = await response.json();
       setResult(data);
       
-      // Rafraîchir les données du profil depuis la DB après génération
-      const { data: updatedProfile } = await supabase.from('profiles').select('*').eq('id', profile.id).single();
-      if (updatedProfile) setProfile(updatedProfile);
-      
+      const { data: updated } = await supabase.from('profiles').select('*').eq('id', profile.id).single();
+      if (updated) setProfile(updated);
       fetchHistory(profile.id);
-    } catch (error: any) {
-      alert("Oups : " + error.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (error: any) { alert("Oups : " + error.message); }
+    finally { setLoading(false); }
   };
 
   const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
       reader.onload = (event) => {
@@ -140,8 +145,7 @@ export default function Home() {
           const canvas = document.createElement("canvas");
           const ctx = canvas.getContext("2d");
           const MAX_WIDTH = 800;
-          let width = img.width;
-          let height = img.height;
+          let width = img.width; let height = img.height;
           if (width > MAX_WIDTH) { height = height * (MAX_WIDTH / width); width = MAX_WIDTH; }
           canvas.width = width; canvas.height = height;
           ctx?.drawImage(img, 0, 0, width, height);
@@ -155,8 +159,7 @@ export default function Home() {
     if (!file || !file.type.startsWith("image/")) return;
     if (file.size > 10 * 1024 * 1024) return alert("Photo trop lourde.");
     setImagePreview(URL.createObjectURL(file));
-    setResult(null);
-    setLoading(true);
+    setResult(null); setLoading(true);
     const compressedBase64 = await compressImage(file);
     setBase64Image(compressedBase64);
     generatePosts(compressedBase64);
@@ -166,12 +169,10 @@ export default function Home() {
   const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) processFile(file);
+    const file = e.dataTransfer.files?.[0]; if (file) processFile(file);
   };
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) processFile(file);
+    const file = e.target.files?.[0]; if (file) processFile(file);
   };
 
   const copyToClipboard = (text: string, fieldId: string) => {
@@ -200,34 +201,31 @@ export default function Home() {
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 z-0"></div>
       <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] rounded-full bg-orange-600/20 blur-[120px] pointer-events-none"></div>
 
-      {/* HEADER SAAS : CRÉDITS LIÉS À L'ID UNIQUE DE L'UTILISATEUR */}
+      {/* HEADER SAAS */}
       {profile && (
         <div className="relative z-50 flex flex-wrap justify-center gap-4 pt-6 animate-fade-in">
           <div className="bg-slate-900/80 border border-slate-800 backdrop-blur-md px-4 py-2 rounded-full flex items-center gap-2">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Solde (ID: {profile.id.substring(0,5)})</span>
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Crédits</span>
             <span className={`text-sm font-black ${profile.credits_remaining > 0 ? 'text-orange-500' : 'text-red-500'}`}>
-              {profile.credits_remaining} crédits
+              {profile.credits_remaining} restants
             </span>
           </div>
-          
           <label className="cursor-pointer bg-slate-900/80 border border-slate-800 px-4 py-2 rounded-full text-xs font-bold hover:border-orange-500 transition-all flex items-center gap-2 backdrop-blur-md">
              <span>{logoUploading ? "⏳..." : profile.logo_url ? "✅ Logo OK" : "🖼️ Mon Logo"}</span>
              <input type="file" onChange={handleLogoUpload} className="hidden" accept="image/*" />
           </label>
-
-          <a 
-            href={`https://wa.me/14155238886?text=Lier%20mon%20compte%20${profile.id}`}
-            className="bg-green-600/20 border border-green-500/50 hover:bg-green-600/30 text-green-400 px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2 shadow-lg"
-          >
+          <a href={`https://wa.me/14155238886?text=Lier%20mon%20compte%20${profile.id}`} className="bg-green-600/20 border border-green-500/50 hover:bg-green-600/30 text-green-400 px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2 shadow-lg">
             <span>📲</span> {profile.whatsapp_number ? "WhatsApp Lié" : "Lier WhatsApp"}
           </a>
         </div>
       )}
 
+      {/* BOUTON CONTACT */}
       <button onClick={() => setShowFeedback(true)} className="fixed top-6 right-6 z-50 bg-slate-900 border border-slate-700 hover:border-orange-500 text-slate-300 hover:text-white px-4 py-2 rounded-full text-sm font-bold shadow-xl transition-all">
         📩 Contact
       </button>
 
+      {/* MODALE CONTACT */}
       {showFeedback && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
             <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl relative text-center text-white">
@@ -266,30 +264,36 @@ export default function Home() {
 
         {!result && !loading && (
           <div className="max-w-3xl mx-auto mb-10 bg-slate-900/50 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-2xl animate-fade-in-up">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                <div className="col-span-1 md:col-span-3 text-left">
-                     <label className="block text-slate-400 text-xs font-bold mb-2 uppercase tracking-wider">🏢 Nom du commerce</label>
-                     <input type="text" placeholder="Ex: Le Braisé d'Or..." value={businessName} onChange={(e) => setBusinessName(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 focus:outline-none focus:border-orange-500 transition-all text-sm font-bold" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 text-left">
+                <div className="md:col-span-2">
+                     <label className="text-slate-400 text-xs font-bold mb-2 uppercase block">🏢 Nom du commerce</label>
+                     <input type="text" placeholder="Le Braisé d'Or..." value={businessName} onChange={(e) => setBusinessName(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 outline-none focus:border-orange-500 transition-all" />
                 </div>
-                <div className="text-left">
-                    <label className="block text-slate-400 text-xs font-bold mb-2 uppercase tracking-wider">📍 Ville</label>
-                    <input type="text" placeholder="Ex: Lyon..." value={city} onChange={(e) => setCity(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 focus:outline-none focus:border-orange-500 text-sm" />
+                <div>
+                    <label className="text-slate-400 text-xs font-bold mb-2 uppercase block">📍 Ville</label>
+                    <input type="text" placeholder="Lyon..." value={city} onChange={(e) => setCity(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 outline-none focus:border-orange-500" />
                 </div>
-                <div className="col-span-2 text-left">
-                    <label className="block text-slate-400 text-xs font-bold mb-2 uppercase tracking-wider">🎭 Objectif</label>
-                    <div className="grid grid-cols-4 gap-2">
-                        {tones.map(t => (
-                          <button key={t.id} onClick={() => setTone(t.id)} className={`py-3 rounded-lg text-xs font-bold border transition-all ${tone === t.id ? "bg-orange-600 border-orange-500 text-white" : "bg-slate-950 border-slate-700 text-slate-500 hover:text-white"}`}>{t.label}</button>
-                        ))}
-                    </div>
+                <div>
+                    <label className="text-slate-400 text-xs font-bold mb-2 uppercase block">🎭 Objectif</label>
+                    <select value={tone} onChange={(e) => setTone(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 outline-none focus:border-orange-500">
+                        {tones.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                    </select>
+                </div>
+                <div>
+                    <label className="text-slate-400 text-xs font-bold mb-2 uppercase block">🏠 Adresse (Optionnel)</label>
+                    <input type="text" placeholder="12 rue de la Paix..." value={address} onChange={(e) => setAddress(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 outline-none focus:border-orange-500" />
+                </div>
+                <div>
+                    <label className="text-slate-400 text-xs font-bold mb-2 uppercase block">🕒 Horaires (Optionnel)</label>
+                    <input type="text" placeholder="9h-19h / Lun-Sam..." value={hours} onChange={(e) => setHours(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 outline-none focus:border-orange-500" />
                 </div>
             </div>
 
-            <div onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} className={`relative group border-2 border-dashed rounded-2xl p-10 text-center transition-all cursor-pointer ${isDragging ? "border-orange-500 bg-orange-500/10" : "border-slate-700 hover:border-orange-400/50"}`}>
-                <input type="file" accept="image/*" onChange={handleFileInput} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-                <div className="flex flex-col items-center justify-center space-y-4 pointer-events-none">
-                    <div className="p-4 rounded-full bg-slate-800"><span className="text-4xl">📸</span></div>
-                    <p className="text-lg font-bold text-white">{isDragging ? "Lâchez ici !" : "Glissez une photo"}</p>
+            <div onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} className={`relative border-2 border-dashed rounded-2xl p-10 text-center transition-all cursor-pointer ${isDragging ? "border-orange-500 bg-orange-500/10" : "border-slate-700 hover:border-orange-400/50"}`}>
+                <input type="file" accept="image/*" onChange={handleFileInput} className="absolute inset-0 opacity-0 cursor-pointer" />
+                <div className="flex flex-col items-center gap-4 pointer-events-none">
+                    <div className="p-4 rounded-full bg-slate-800 text-4xl">📸</div>
+                    <p className="text-lg font-bold">Cliquez ou glissez une photo</p>
                 </div>
             </div>
           </div>

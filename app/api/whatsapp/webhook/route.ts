@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
         const newCaption = aiResponse.choices[0].message.content || "";
         
         await supabase.from('draft_posts').update({ caption: newCaption }).eq('id', lastDraft.id);
-        await sendWhatsApp(from, `✨ Voici la version modifiée :\n\n"${newCaption}"\n\n✅ Répondez OUI pour valider ou demandez une modif.\n(Solde : ${user.credits_remaining} crédits)`);
+        await sendWhatsApp(from, `✨ Voici la version modifiée :\n\n"${newCaption}"\n\n✅ Répondez OUI pour valider ou demandez une autre modif !`);
         return NextResponse.json({ success: true });
       }
     }
@@ -165,8 +165,17 @@ export async function POST(req: NextRequest) {
           {
             role: "user",
             content: [
-              { type: "text", text: `Rédige un post Instagram très vendeur pour ce commerce : ${user.business_name || 'mon client'}. Ville : ${user.business_city || ''}. Ton : ${user.brand_tone || 'Pro'}.` },
-              { type: "image_url", image_url: { url: base64Image } }
+              { 
+                type: "text", 
+                text: `Rédige un post Instagram très vendeur pour ce commerce.
+                Nom: ${user.business_name || 'mon client'}.
+                Ville: ${user.business_city || ''}.
+                Adresse: ${user.business_address || 'Non spécifiée'}.
+                Horaires: ${user.business_hours || 'Non spécifiés'}.
+                Ton: ${user.brand_tone || 'Pro'}.
+                N'invente pas l'adresse ou les horaires s'ils ne sont pas fournis.`
+              },
+              { type: "image_url", image_url: { url: base64Image } } 
             ],
           },
         ],
@@ -181,7 +190,6 @@ export async function POST(req: NextRequest) {
         status: 'draft'
       }]);
 
-      // Décrémentation et récupération du nouveau solde
       await supabase.rpc('decrement_credits', { user_id: user.id });
       const { data: updatedBalance } = await supabase
         .from('profiles')
@@ -196,6 +204,7 @@ export async function POST(req: NextRequest) {
         mediaUrl: [cloudinaryRes.secure_url]
       });
 
+      console.log("Post généré et envoyé avec succès.");
       return NextResponse.json({ success: true });
     }
 

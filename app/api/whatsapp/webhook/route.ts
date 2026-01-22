@@ -19,38 +19,42 @@ export async function POST(req: NextRequest) {
   console.log("--- NOUVEL EVENEMENT WEBHOOK ---");
   
   try {
-    // 1. EXTRACTION COMPLÈTE DES DONNÉES TWILIO
     const formData = await req.formData();
     const from = formData.get('From') as string;
     const body = formData.get('Body')?.toString().trim() || "";
     const mediaUrl = formData.get('MediaUrl0') as string;
-    const messageSid = formData.get('MessageSid') as string;
 
     console.log(`Message de: ${from} | Contenu: ${body} | Media: ${mediaUrl ? 'Oui' : 'Non'}`);
 
-    // 2. LOGIQUE DE LIAISON DE COMPTE (SESSION INVITÉ -> WHATSAPP)
+    // =================================================================================
+    // 1. LIAISON DE COMPTE (DÉCLENCHE L'ONBOARDING)
+    // =================================================================================
     if (body.toLowerCase().startsWith("lier mon compte")) {
       const userId = body.split(" ").pop();
-      console.log(`Tentative de liaison pour l'ID: ${userId}`);
       
+      // On lie le numéro ET on met le statut d'onboarding à 'ask_name' pour forcer les questions
       const { data: updatedUser, error: updateError } = await supabase
         .from('profiles')
-        .update({ whatsapp_number: from })
+        .update({ 
+          whatsapp_number: from,
+          onboarding_step: 'ask_name' // <--- DÉBUT DU QUESTIONNAIRE
+        })
         .eq('id', userId)
         .select()
         .single();
 
       if (updateError) {
-        console.error("Erreur lors de la liaison:", updateError);
-        await sendWhatsApp(from, "❌ Désolé, je n'ai pas pu lier votre compte. Vérifiez l'ID sur le site.");
+        await sendWhatsApp(from, "❌ Erreur de liaison. Vérifiez l'ID.");
         return NextResponse.json({ success: false });
       }
 
-      await sendWhatsApp(from, `✅ Félicitations ! Votre compte est lié. Solde : ${updatedUser.credits_remaining} crédits. Envoyez-moi une photo pour commencer !`);
+      await sendWhatsApp(from, `👋 Bienvenue chez Pictopost !\n\nAvant de commencer, j'ai besoin de mieux vous connaître pour rédiger des posts parfaits.\n\n1️⃣ Quel est le **Nom de votre commerce** ?`);
       return NextResponse.json({ success: true });
     }
 
-    // 3. VÉRIFICATION DE L'UTILISATEUR DANS LA BASE
+    // =================================================================================
+    // 2. RÉCUPÉRATION DU PROFIL
+    // =================================================================================
     const { data: user, error: userError } = await supabase
       .from('profiles')
       .select('*')
@@ -58,15 +62,53 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (userError || !user) {
-      console.log("Utilisateur non reconnu:", from);
-      await sendWhatsApp(from, "🤖 Bonjour ! Je ne reconnais pas ce numéro. Pour m'utiliser, rendez-vous sur https://pictopost.vercel.app et cliquez sur 'Lier WhatsApp'.");
+      await sendWhatsApp(from, "🤖 Bonjour ! Numéro inconnu. Liez votre compte sur le site d'abord.");
       return NextResponse.json({ success: false });
     }
 
-    // 4. LOGIQUE D'IA INTERACTIVE (MODIFICATION DU TEXTE)
-    if (body && !mediaUrl && body.toUpperCase() !== 'OUI') {
-      console.log("L'utilisateur demande une modification...");
+    // =================================================================================
+    // 3. LOGIQUE D'ONBOARDING (QUESTIONS / RÉPONSES)
+    // =================================================================================
+    if (user.onboarding_step && user.onboarding_step !== 'completed' && !mediaUrl) {
       
+      // ÉTAPE 1 : ON ATTEND LE NOM
+      if (user.onboarding_step === 'ask_name') {
+        await supabase.from('profiles').update({ 
+          business_name: body, 
+          onboarding_step: 'ask_activity' 
+        }).eq('id', user.id);
+        
+        await sendWhatsApp(from, `✅ Noté "${body}".\n\n2️⃣ Quelle est votre **Activité précise** ?\n(ex: Photographe de mariage, Boulangerie bio, Garage auto...)`);
+        return NextResponse.json({ success: true });
+      }
+
+      // ÉTAPE 2 : ON ATTEND L'ACTIVITÉ (CRUCIAL POUR TON EXEMPLE DU MARIÉ)
+      if (user.onboarding_step === 'ask_activity') {
+        await supabase.from('profiles').update({ 
+          business_activity: body, 
+          onboarding_step: 'ask_city' 
+        }).eq('id', user.id);
+        
+        await sendWhatsApp(from, `✅ C'est noté.\n\n3️⃣ Dans quelle **Ville** êtes-vous situé ?`);
+        return NextResponse.json({ success: true });
+      }
+
+      // ÉTAPE 3 : ON ATTEND LA VILLE
+      if (user.onboarding_step === 'ask_city') {
+        await supabase.from('profiles').update({ 
+          business_city: body, 
+          onboarding_step: 'completed' // <--- FIN DU QUESTIONNAIRE
+        }).eq('id', user.id);
+        
+        await sendWhatsApp(from, `🎉 Configuration terminée !\n\nJe suis prêt. Envoyez-moi une photo (ex: un marié, un produit...) et je rédigerai le post parfait pour un **${user.business_activity}**.`);
+        return NextResponse.json({ success: true });
+      }
+    }
+
+    // =================================================================================
+    // 4. LOGIQUE D'IA INTERACTIVE (MODIFICATION DU TEXTE)
+    // =================================================================================
+    if (body && !mediaUrl && body.toUpperCase() !== 'OUI') {
       const { data: lastDraft } = await supabase
         .from('draft_posts')
         .select('*')
@@ -76,82 +118,64 @@ export async function POST(req: NextRequest) {
         .single();
 
       if (lastDraft) {
-        await sendWhatsApp(from, "🔄 Je retravaille le post selon vos instructions...");
-        
+        await sendWhatsApp(from, "🔄 Je modifie selon vos retours...");
         const aiResponse = await openai.chat.completions.create({
           model: "gpt-4o",
           messages: [
-            { role: "system", content: "Tu es un expert en réseaux sociaux. Tu as déjà rédigé ce post : " + lastDraft.caption },
-            { role: "user", content: "L'utilisateur veut ces changements : " + body + ". Réécris le post en restant vendeur." }
+            { role: "system", content: `Tu es CM pour ${user.business_name} (${user.business_activity}). Post précédent : ${lastDraft.caption}` },
+            { role: "user", content: "Modif demandée : " + body }
           ]
         });
 
         const newCaption = aiResponse.choices[0].message.content || "";
-        
         await supabase.from('draft_posts').update({ caption: newCaption }).eq('id', lastDraft.id);
-        await sendWhatsApp(from, `✨ Voici la version modifiée :\n\n"${newCaption}"\n\n✅ Répondez OUI pour valider ou demandez une autre modif !`);
+        await sendWhatsApp(from, `✨ Version modifiée :\n\n"${newCaption}"\n\n✅ Répondez OUI pour valider.`);
         return NextResponse.json({ success: true });
       }
     }
 
-    // 5. GESTION DE LA VALIDATION (PUBLICATION)
+    // =================================================================================
+    // 5. VALIDATION (PUBLICATION)
+    // =================================================================================
     if (body.toUpperCase() === 'OUI') {
-      const { data: draft, error: draftError } = await supabase
-        .from('draft_posts')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'draft')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+      const { data: draft } = await supabase.from('draft_posts').select('*').eq('user_id', user.id).eq('status', 'draft').order('created_at', { ascending: false }).limit(1).single();
 
-      if (draftError || !draft) {
-        await sendWhatsApp(from, "❓ Je n'ai pas de post en attente. Envoyez-moi une photo d'abord !");
-        return NextResponse.json({ success: false });
+      if (draft) {
+        await sendWhatsApp(from, "🚀 Publication en cours...");
+        await supabase.from('draft_posts').update({ status: 'published' }).eq('id', draft.id);
+        await sendWhatsApp(from, `✅ C'est en ligne ! (Solde : ${user.credits_remaining})`);
       }
-
-      await sendWhatsApp(from, "🚀 Envoi sur vos réseaux sociaux en cours...");
-      
-      await supabase.from('draft_posts').update({ status: 'published' }).eq('id', draft.id);
-      
-      await sendWhatsApp(from, `✅ C'est en ligne ! Votre communauté va adorer.\n(Solde : ${user.credits_remaining} crédits)`);
       return NextResponse.json({ success: true });
     }
 
-    // 6. TRAITEMENT DE LA PHOTO (RETREIVE -> CLOUDINARY LOGO -> OPENAI)
+    // =================================================================================
+    // 6. TRAITEMENT DE LA PHOTO (AVEC LE NOUVEAU CONTEXTE MÉTIER)
+    // =================================================================================
     if (mediaUrl) {
       if (user.credits_remaining <= 0 && !user.is_pro) {
-        await sendWhatsApp(from, "⚠️ Vous avez épuisé vos crédits gratuits. Pour continuer, passez à l'offre Pro sur le site !");
+        await sendWhatsApp(from, "⚠️ Crédits épuisés. Rechargez sur le site !");
         return NextResponse.json({ success: false });
       }
 
-      await sendWhatsApp(from, "🎨 Je prépare votre post (retouche + logo)...");
+      // Si l'onboarding n'est pas fini, on rappelle à l'ordre
+      if (user.onboarding_step && user.onboarding_step !== 'completed') {
+        await sendWhatsApp(from, "⚠️ Répondez d'abord à la question posée ci-dessus pour que je puisse travailler !");
+        return NextResponse.json({ success: false });
+      }
+
+      await sendWhatsApp(from, "🎨 Analyse contextuelle de l'image...");
 
       const responseMedia = await fetch(mediaUrl, {
-        headers: {
-          Authorization: `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}`,
-        },
+        headers: { Authorization: `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}` },
       });
       const buffer = await responseMedia.arrayBuffer();
       const base64Image = `data:${responseMedia.headers.get('content-type')};base64,${Buffer.from(buffer).toString('base64')}`;
 
-      const transformations: any[] = [
-        { effect: "improve:outdoor" },
-        { quality: "auto" }
-      ];
-
+      // Transformations Cloudinary (Logo, etc.)
+      const transformations: any[] = [{ effect: "improve:outdoor" }, { quality: "auto" }];
       if (user.logo_url) {
-        const logoPublicId = user.logo_url.split('/').pop()?.split('.')[0];
-        if (logoPublicId) {
-          transformations.push({ 
-            overlay: logoPublicId, 
-            gravity: "south_east", 
-            width: 150, 
-            x: 25, 
-            y: 25,
-            opacity: 90 
-          });
-        }
+        const logoId = user.logo_url.split('/').pop()?.split('.')[0];
+        if (logoId) transformations.push({ overlay: logoId, gravity: "south_east", width: 150, x: 25, y: 25, opacity: 90 });
       }
 
       const cloudinaryRes = await cloudinary.uploader.upload(base64Image, {
@@ -159,6 +183,8 @@ export async function POST(req: NextRequest) {
         transformation: transformations
       });
 
+      // --- LE PROMPT QUI CHANGE TOUT ---
+      // On injecte l'activité précise (ex: "Costumier") pour guider l'IA
       const visionRes = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
@@ -167,13 +193,16 @@ export async function POST(req: NextRequest) {
             content: [
               { 
                 type: "text", 
-                text: `Rédige un post Instagram très vendeur pour ce commerce.
-                Nom: ${user.business_name || 'mon client'}.
-                Ville: ${user.business_city || ''}.
-                Adresse: ${user.business_address || 'Non spécifiée'}.
-                Horaires: ${user.business_hours || 'Non spécifiés'}.
-                Ton: ${user.brand_tone || 'Pro'}.
-                N'invente pas l'adresse ou les horaires s'ils ne sont pas fournis.`
+                text: `Tu es le Community Manager de "${user.business_name}", une activité de "${user.business_activity}" située à ${user.business_city}.
+                
+                Tâche : Rédige un post Instagram engageant pour cette photo.
+                
+                IMPORTANT : 
+                - Analyse l'image en fonction du métier "${user.business_activity}".
+                - Si c'est un marié et que je suis "Vendeur de costumes", parle de l'élégance, du tissu, de la coupe.
+                - Si c'est un marié et que je suis "Photographe", parle de l'émotion, de la lumière, du moment capturé.
+                - Ton : ${user.brand_tone || 'Professionnel et chaleureux'}.
+                - N'invente pas de fausses promotions.`
               },
               { type: "image_url", image_url: { url: base64Image } } 
             ],
@@ -183,47 +212,29 @@ export async function POST(req: NextRequest) {
 
       const caption = visionRes.choices[0].message.content || "";
 
-      await supabase.from('draft_posts').insert([{
-        user_id: user.id,
-        image_url: cloudinaryRes.secure_url,
-        caption: caption,
-        status: 'draft'
-      }]);
-
+      await supabase.from('draft_posts').insert([{ user_id: user.id, image_url: cloudinaryRes.secure_url, caption: caption, status: 'draft' }]);
       await supabase.rpc('decrement_credits', { user_id: user.id });
-      const { data: updatedBalance } = await supabase
-        .from('profiles')
-        .select('credits_remaining')
-        .eq('id', user.id)
-        .single();
+
+      const { data: updated } = await supabase.from('profiles').select('credits_remaining').eq('id', user.id).single();
 
       await twilioClient.messages.create({
         from: 'whatsapp:+14155238886',
         to: from,
-        body: `✨ *PROPOSITION :*\n\n"${caption}"\n\n✅ Répondez *OUI* pour publier.\n\n📉 Crédit utilisé. Solde restant : *${updatedBalance?.credits_remaining}*`,
+        body: `✨ *PROPOSITION (${user.business_activity}) :*\n\n"${caption}"\n\n✅ Répondez OUI ou demandez une modif.\n📉 Solde : ${updated?.credits_remaining}`,
         mediaUrl: [cloudinaryRes.secure_url]
       });
 
-      console.log("Post généré et envoyé avec succès.");
       return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ success: true });
 
   } catch (error: any) {
-    console.error("ERREUR CRITIQUE WEBHOOK:", error);
+    console.error("ERREUR WEBHOOK:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
 async function sendWhatsApp(to: string, body: string) {
-  try {
-    return await twilioClient.messages.create({
-      from: 'whatsapp:+14155238886',
-      to: to,
-      body: body,
-    });
-  } catch (e) {
-    console.error("Erreur envoi WhatsApp:", e);
-  }
+  try { await twilioClient.messages.create({ from: 'whatsapp:+14155238886', to, body }); } catch (e) { console.error(e); }
 }

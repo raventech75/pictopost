@@ -4,6 +4,7 @@ import OpenAI from 'openai';
 import { supabase } from '@/lib/supabase';
 import { v2 as cloudinary } from 'cloudinary';
 
+// Configuration des clients
 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -11,6 +12,7 @@ cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
+  secure: true,
 });
 
 export async function POST(req: NextRequest) {
@@ -20,82 +22,127 @@ export async function POST(req: NextRequest) {
     const body = formData.get('Body')?.toString().trim() || "";
     const mediaUrl = formData.get('MediaUrl0') as string;
 
-    // --- 1. LIAISON AUTOMATIQUE ---
+    // --- 1. LIAISON AUTOMATIQUE DE COMPTE ---
     if (body.startsWith("Lier mon compte")) {
       const userId = body.split(" ").pop();
-      await supabase.from('profiles').update({ whatsapp_number: from }).eq('id', userId);
-      await sendWhatsApp(from, "✅ Compte Pictopost lié ! Vous pouvez m'envoyer une photo pour votre prochain post.");
+      const { error } = await supabase
+        .from('profiles')
+        .update({ whatsapp_number: from })
+        .eq('id', userId);
+        
+      if (error) throw error;
+
+      await sendWhatsApp(from, "✅ Compte Pictopost lié avec succès ! Vous pouvez désormais m'envoyer vos photos directement ici pour créer vos posts.");
       return NextResponse.json({ success: true });
     }
 
-    // --- 2. RÉCUPÉRATION UTILISATEUR ---
-    const { data: user } = await supabase.from('profiles').select('*').eq('whatsapp_number', from).single();
-    if (!user) {
-      await sendWhatsApp(from, "❌ Je ne reconnais pas ce numéro. Liez votre compte sur le site.");
+    // --- 2. RÉCUPÉRATION DU PROFIL ---
+    const { data: user, error: userError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('whatsapp_number', from)
+      .single();
+
+    if (userError || !user) {
+      await sendWhatsApp(from, "❌ Votre numéro n'est pas reconnu. Rendez-vous sur https://pictopost.vercel.app pour lier votre WhatsApp.");
       return NextResponse.json({ success: false });
     }
 
     // --- 3. GESTION DU "OUI" (PUBLICATION) ---
     if (body.toUpperCase() === 'OUI') {
-      const { data: draft } = await supabase.from('draft_posts').select('*').eq('user_id', user.id).eq('status', 'pending').order('created_at', { ascending: false }).limit(1).single();
+      const { data: draft } = await supabase
+        .from('draft_posts')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
       if (draft) {
-        await sendWhatsApp(from, "🚀 Publication en cours...");
+        await sendWhatsApp(from, "🚀 C'est en ligne ! Votre post a été publié sur vos réseaux sociaux.");
         await supabase.from('draft_posts').update({ status: 'published' }).eq('id', draft.id);
-        await sendWhatsApp(from, "✅ C'est en ligne !");
+      } else {
+        await sendWhatsApp(from, "Aïe, je n'ai trouvé aucun post en attente de publication.");
       }
       return NextResponse.json({ success: true });
     }
 
-    // --- 4. TRAITEMENT PHOTO (CRÉDITS + CLOUDINARY + IA) ---
+    // --- 4. TRAITEMENT PHOTO (CLOUDINARY + IA) ---
     if (mediaUrl) {
-      if (user.credits_remaining <= 0) {
-        await sendWhatsApp(from, "⚠️ Crédits épuisés. Rendez-vous sur Pictopost pour en rajouter.");
+      // Vérification crédits
+      if (user.credits_remaining <= 0 && !user.is_pro) {
+        await sendWhatsApp(from, "⚠️ Vous n'avez plus de crédits. Rechargez sur le site pour continuer à utiliser l'assistant.");
         return NextResponse.json({ success: false });
       }
 
-      await sendWhatsApp(from, "🎨 Retouche de l'image en cours...");
+      await sendWhatsApp(from, "🎨 Analyse et embellissement de votre image en cours...");
 
-      // Download Twilio Image -> Base64
+      // A. Téléchargement depuis Twilio (Base64)
       const responseMedia = await fetch(mediaUrl, {
-        headers: { Authorization: `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}` },
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}`,
+        },
       });
       const buffer = await responseMedia.arrayBuffer();
-      const b64 = `data:${responseMedia.headers.get('content-type')};base64,${Buffer.from(buffer).toString('base64')}`;
+      const base64Image = `data:${responseMedia.headers.get('content-type')};base64,${Buffer.from(buffer).toString('base64')}`;
 
-      // Cloudinary Clean-up
-      const cloudRes = await cloudinary.uploader.upload(b64, {
-        folder: 'whatsapp_uploads',
-        transformation: [{ effect: "improve:outdoor" }, { quality: "auto" }]
+      // B. Retouche via Cloudinary
+      const cloudinaryResponse = await cloudinary.uploader.upload(base64Image, {
+        folder: 'pictopost_whatsapp',
+        transformation: [
+          { effect: "improve:outdoor" },
+          { quality: "auto" }
+        ]
       });
+      
+      const finalImageUrl = cloudinaryResponse.secure_url;
 
-      // OpenAI Caption (On utilise GPT-4o ici car c'est plus précis pour l'image)
-      const ai = await openai.chat.completions.create({
+      // C. Rédaction IA (GPT-4o pour la vision)
+      const aiResponse = await openai.chat.completions.create({
         model: "gpt-4o",
-        messages: [{ role: "user", content: [{ type: "text", text: `Rédige un post Instagram vendeur pour cette image. Ton : ${user.brand_tone || 'Standard'}` }, { type: "image_url", image_url: { url: b64 } }] }]
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: `Rédige un post Instagram vendeur pour cette image. Commerce: ${user.business_name || 'Expert'}. Ton: ${user.brand_tone || 'Standard'}` },
+              { type: "image_url", image_url: { url: base64Image } },
+            ],
+          },
+        ],
       });
 
-      const caption = ai.choices[0].message.content || "";
+      const aiText = aiResponse.choices[0].message.content || "";
 
-      // Save Draft & Décrémenter crédit
-      await supabase.from('draft_posts').insert([{ user_id: user.id, image_url: cloudRes.secure_url, caption }]);
-      await supabase.from('profiles').update({ credits_remaining: user.credits_remaining - 1 }).eq('id', user.id);
+      // D. Sauvegarde Draft & Décrémentation crédits
+      await supabase.from('draft_posts').insert([
+        { user_id: user.id, image_url: finalImageUrl, caption: aiText }
+      ]);
+      await supabase.rpc('decrement_credits', { user_id: user.id });
 
-      // Reply with Image
+      // E. Envoi de la proposition visuelle
       await twilioClient.messages.create({
-        from: 'whatsapp:+14155238886', // NUMÉRO DUR COMME DEMANDÉ
+        from: 'whatsapp:+14155238886', // Numéro Sandbox standard (à tester)
         to: from,
-        body: `✨ PROPOSITION :\n\n"${caption}"\n\n✅ Répondez OUI pour publier.`,
-        mediaUrl: [cloudRes.secure_url]
+        body: `✨ *PROPOSITION DE POST :*\n\n"${aiText}"\n\n✅ Répondez *OUI* pour publier maintenant.`,
+        mediaUrl: [finalImageUrl]
       });
+
+      return NextResponse.json({ success: true });
     }
 
-    return NextResponse.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Internal Error" }, { status: 500 });
+    return NextResponse.json({ message: "OK" });
+  } catch (error: any) {
+    console.error("Erreur Webhook:", error);
+    return NextResponse.json({ error: "Erreur" }, { status: 500 });
   }
 }
 
+// Fonctions utilitaires
 async function sendWhatsApp(to: string, body: string) {
-  return twilioClient.messages.create({ from: 'whatsapp:+14155238886', to, body });
+  return twilioClient.messages.create({
+    from: 'whatsapp:+14155238886',
+    to: to,
+    body: body,
+  });
 }

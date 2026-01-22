@@ -15,18 +15,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Aucune image fournie" }, { status: 400 });
     }
 
-    // --- SÉCURITÉ CRÉDITS ---
+    // --- 1. VÉRIFICATION DES CRÉDITS (SAAS) ---
     if (userId) {
-        const { data: user } = await supabase.from('profiles').select('credits_remaining').eq('id', userId).single();
-        if (!user || user.credits_remaining <= 0) {
-            return NextResponse.json({ error: "Plus de crédits. Rechargez sur le site !" }, { status: 403 });
-        }
+      const { data: user, error: userError } = await supabase
+        .from('profiles')
+        .select('credits_remaining, is_pro')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !user || (user.credits_remaining <= 0 && !user.is_pro)) {
+        return NextResponse.json({ error: "Crédits insuffisants. Rechargez sur le site." }, { status: 403 });
+      }
     }
 
     const contextCity = city ? `Ville : ${city}` : "";
     const contextName = businessName ? `Nom du Commerce : ${businessName}` : "Nom générique (ex: Votre expert)";
     const contextTone = tone ? `Ton : ${tone}` : "Ton : Standard";
 
+    // --- 2. TON PROMPT EXPERT ---
     const systemPrompt = `
       Tu es le meilleur Community Manager de France.
       CONTEXTE : ${contextName}. ${contextCity}. ${contextTone}.
@@ -50,7 +56,7 @@ export async function POST(req: Request) {
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Utilisation de mini comme ton code original
+      model: "gpt-4o-mini",
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
@@ -68,18 +74,16 @@ export async function POST(req: Request) {
     const content = response.choices[0].message.content;
     const jsonContent = JSON.parse(content || "{}");
 
-    // --- DÉCRÉMENTATION DES CRÉDITS ---
+    // --- 3. DÉCRÉMENTATION DES CRÉDITS (SAAS) ---
     if (userId) {
-        const { data: user } = await supabase.from('profiles').select('credits_remaining').eq('id', userId).single();
-        if (user) {
-            await supabase.from('profiles').update({ credits_remaining: user.credits_remaining - 1 }).eq('id', userId);
-        }
+      // On utilise la fonction RPC créée précédemment ou un update simple
+      await supabase.rpc('decrement_credits', { user_id: userId });
     }
 
     return NextResponse.json(jsonContent);
 
   } catch (error: any) {
-    console.error("Erreur API:", error);
+    console.error("Erreur API Generate:", error);
     return NextResponse.json({ error: error.message || "Erreur serveur" }, { status: 500 });
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase"; // Import ajouté
+import { supabase } from "@/lib/supabase";
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
@@ -9,7 +9,7 @@ export default function Home() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [base64Image, setBase64Image] = useState<string | null>(null);
   
-  // NOUVEAU : État du profil pour les crédits
+  // --- NOUVEAUX ÉTATS SAAS ---
   const [profile, setProfile] = useState<any>(null);
 
   // Champs
@@ -33,13 +33,13 @@ export default function Home() {
     { id: "Urgence", label: "🔥 Promo" },
   ];
 
-  // NOUVEAU : Charger le profil Supabase au montage
+  // --- LOGIQUE RÉCUPÉRATION PROFIL ---
   useEffect(() => {
     async function loadProfile() {
       const { data } = await supabase.from('profiles').select('*').limit(1).single();
       if (data) {
         setProfile(data);
-        if (data.brand_tone) setTone(data.brand_tone);
+        if (data.business_name) setBusinessName(data.business_name);
       }
     }
     loadProfile();
@@ -58,9 +58,9 @@ export default function Home() {
   }, [loading]);
 
   const generatePosts = async (b64: string) => {
-    // SÉCURITÉ CRÉDITS
+    // VÉRIFICATION DES CRÉDITS
     if (profile && profile.credits_remaining <= 0) {
-      alert("⚠️ Vous n'avez plus de crédits. Passez à l'offre Pro pour continuer !");
+      alert("⚠️ Vous avez épuisé vos crédits gratuits. Liez votre WhatsApp ou passez à l'offre Pro !");
       setLoading(false);
       return;
     }
@@ -81,19 +81,20 @@ export default function Home() {
           city, 
           tone, 
           businessName,
-          userId: profile?.id // ON PASSE L'ID POUR DÉCRÉMENTER
+          userId: profile?.id 
         }),
       });
       
       if (!response.ok) {
+        if (response.status === 413) throw new Error("Image trop lourde pour le serveur.");
         const errData = await response.json();
         throw new Error(errData.error || "Erreur lors de la génération.");
       }
       
       const data = await response.json();
       setResult(data);
-      
-      // Mise à jour locale du compteur de crédits
+
+      // Mise à jour locale des crédits
       if (profile) setProfile({...profile, credits_remaining: profile.credits_remaining - 1});
 
     } catch (error: any) {
@@ -186,22 +187,24 @@ export default function Home() {
 
   return (
     <main className="min-h-screen font-sans text-white relative overflow-hidden bg-slate-950 selection:bg-orange-500 selection:text-white">
+      {/* BACKGROUND EFFECTS */}
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 z-0"></div>
-      
-      {/* NOUVEAU : BANNIÈRE DE CRÉDITS ET WHATSAPP */}
+      <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] rounded-full bg-orange-600/20 blur-[120px] pointer-events-none"></div>
+
+      {/* HEADER SAAS (CRÉDITS & WHATSAPP) */}
       {profile && (
-        <div className="relative z-50 flex justify-center gap-4 pt-6 animate-fade-in">
+        <div className="relative z-50 flex flex-wrap justify-center gap-4 pt-6 animate-fade-in">
           <div className="bg-slate-900/80 border border-slate-800 backdrop-blur-md px-4 py-2 rounded-full flex items-center gap-2">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Crédits</span>
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Tes Crédits</span>
             <span className={`text-sm font-black ${profile.credits_remaining > 0 ? 'text-orange-500' : 'text-red-500'}`}>
-              {profile.credits_remaining} / 3
+              {profile.credits_remaining} restants
             </span>
           </div>
           <a 
             href={`https://wa.me/14155238886?text=Lier%20mon%20compte%20${profile.id}`}
-            className="bg-green-600/20 border border-green-500/50 hover:bg-green-600/30 text-green-400 px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2"
+            className="bg-green-600/20 border border-green-500/50 hover:bg-green-600/30 text-green-400 px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-green-900/20"
           >
-            <span>📲</span> {profile.whatsapp_number ? "WhatsApp Activé" : "Lier WhatsApp"}
+            <span>📲</span> {profile.whatsapp_number ? "Assistant WhatsApp Prêt" : "Activer WhatsApp"}
           </a>
         </div>
       )}
@@ -211,44 +214,70 @@ export default function Home() {
         onClick={() => setShowFeedback(true)}
         className="fixed top-6 right-6 z-50 bg-slate-900 border border-slate-700 hover:border-orange-500 text-slate-300 hover:text-white px-4 py-2 rounded-full text-sm font-bold shadow-xl transition-all flex items-center gap-2 hover:scale-105"
       >
-        <span>📩</span> <span className="hidden sm:inline">Contact</span>
+        <span>📩</span> <span className="hidden sm:inline">Contact / Idée</span>
       </button>
 
       {/* MODALE CONTACT */}
       {showFeedback && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
             <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl relative text-center">
                 <button onClick={() => setShowFeedback(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white">✕</button>
                 <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">📬</div>
-                <h2 className="text-2xl font-bold mb-2">Contactez-nous</h2>
-                <div className="bg-black/50 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-4 mb-6 mt-4">
-                    <span className="text-orange-400 font-mono text-sm font-bold truncate">raventech75@gmail.com</span>
-                    <button onClick={copyEmail} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition-colors">
-                        {emailCopied ? "✅" : "📋"}
+                <h2 className="text-2xl font-bold mb-2 text-white">Contactez-nous</h2>
+                <p className="text-slate-400 text-sm mb-6">Une idée d'amélioration ? Un bug ? <br/> Copiez notre adresse et écrivez-nous !</p>
+                <div className="bg-black/50 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-4 mb-6 group hover:border-orange-500/50 transition-colors">
+                    <span className="text-orange-400 font-mono text-sm sm:text-base font-bold truncate">raventech75@gmail.com</span>
+                    <button onClick={copyEmail} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition-colors whitespace-nowrap">
+                        {emailCopied ? "✅ Copié !" : "📋 Copier"}
                     </button>
                 </div>
-                <button onClick={() => setShowFeedback(false)} className="text-slate-500 hover:text-white text-sm underline">Fermer</button>
+                <button onClick={() => setShowFeedback(false)} className="text-slate-500 hover:text-white text-sm underline underline-offset-4">Fermer</button>
             </div>
         </div>
       )}
 
       <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 relative z-10">
+        
+        {/* TITRE PRINCIPAL */}
         <div className="text-center mb-10 space-y-4">
           <h1 className="text-6xl md:text-8xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-white via-orange-100 to-orange-400">
             Pictopost
           </h1>
-          <p className="text-xl text-slate-400 max-w-2xl mx-auto font-light italic">
-            Votre Community Manager IA, de votre poche à vos réseaux.
+          <p className="text-xl text-slate-400 max-w-2xl mx-auto font-light">
+            L'outil secret des commerçants qui cartonnent sur les réseaux.
           </p>
         </div>
 
-        {/* ZONE CONFIG */}
+        {/* GUIDE D'ACTIVATION WHATSAPP */}
+        {profile && !profile.whatsapp_number && !result && !loading && (
+          <div className="max-w-md mx-auto mb-10 bg-slate-900/50 border border-slate-800 rounded-3xl p-6 backdrop-blur-md text-left animate-fade-in shadow-2xl">
+            <h3 className="text-xs font-bold text-orange-500 mb-4 uppercase tracking-widest flex items-center gap-2">
+               🚀 Comment lier votre WhatsApp ?
+            </h3>
+            <div className="space-y-4 text-[11px] text-slate-400 leading-relaxed">
+              <div className="flex gap-3">
+                <span className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center font-bold text-white flex-none">1</span>
+                <p>Envoyez d'abord <code className="text-orange-400 font-bold">join [ton-code]</code> au numéro Twilio.</p>
+              </div>
+              <div className="flex gap-3">
+                <span className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center font-bold text-white flex-none">2</span>
+                <p>Cliquez sur le bouton vert <span className="text-white font-bold">Activer WhatsApp</span> en haut.</p>
+              </div>
+              <div className="flex gap-3">
+                <span className="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center font-bold text-white flex-none">3</span>
+                <p>Appuyez sur <span className="text-white font-bold">Envoyer</span>. Votre compte est lié !</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ZONE CONFIGURATION */}
         {!result && !loading && (
-          <div className="max-w-3xl mx-auto mb-10 bg-slate-900/50 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-2xl">
+          <div className="max-w-3xl mx-auto mb-10 bg-slate-900/50 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-2xl animate-fade-in-up">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                 <div className="col-span-1 md:col-span-3">
                      <label className="block text-slate-400 text-xs font-bold mb-2 uppercase tracking-wider">🏢 Nom du commerce</label>
-                     <input type="text" placeholder="Ex: Le Braisé d'Or..." value={businessName} onChange={(e) => setBusinessName(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 focus:outline-none focus:border-orange-500 transition-all text-sm font-bold" />
+                     <input type="text" placeholder="Ex: Le Braisé d'Or..." value={businessName} onChange={(e) => setBusinessName(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 focus:outline-none focus:border-orange-500 transition-all text-sm font-bold placeholder-slate-700" />
                 </div>
                 <div>
                     <label className="block text-slate-400 text-xs font-bold mb-2 uppercase tracking-wider">📍 Ville</label>
@@ -270,8 +299,8 @@ export default function Home() {
                 <input type="file" accept="image/*" onChange={handleFileInput} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                 <div className="flex flex-col items-center justify-center space-y-4 pointer-events-none">
                     <div className={`p-4 rounded-full bg-slate-800 transition-transform ${isDragging ? "scale-110" : "group-hover:scale-110"}`}><span className="text-4xl">📸</span></div>
-                    <div>
-                        <p className="text-lg font-bold text-white">{isDragging ? "Lâchez pour poster !" : "Glissez une photo ici"}</p>
+                    <div className="text-center">
+                        <p className="text-lg font-bold text-white">{isDragging ? "Lâchez tout !" : "Cliquez ou glissez une photo"}</p>
                         <p className="text-xs text-slate-500 mt-2 font-mono uppercase tracking-wide">JPG, PNG • Max 10 Mo</p>
                     </div>
                 </div>
@@ -281,32 +310,27 @@ export default function Home() {
 
         {/* LOADER */}
         {loading && imagePreview && (
-           <div className="max-w-xl mx-auto flex flex-col items-center mt-8 bg-slate-900/50 p-8 rounded-3xl border border-slate-800">
+           <div className="max-w-xl mx-auto flex flex-col items-center justify-center mt-8 animate-fade-in-up bg-slate-900/50 p-8 rounded-3xl border border-slate-800">
              <div className="relative mb-6 w-32 h-32">
                <img src={imagePreview} className="w-full h-full object-cover rounded-xl border-2 border-slate-700 opacity-50" />
                <div className="absolute inset-0 flex items-center justify-center"><div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-orange-500"></div></div>
              </div>
              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700">
-               <div className="bg-gradient-to-r from-orange-500 to-pink-600 h-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
+               <div className="bg-gradient-to-r from-orange-500 to-pink-600 h-full rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
              </div>
-             <p className="text-orange-400 mt-4 font-mono text-xs animate-pulse tracking-widest uppercase text-center">Magie de l'IA en cours...</p>
+             <p className="text-orange-400 mt-4 font-mono text-xs animate-pulse tracking-widest uppercase">Optimisation & Analyse IA...</p>
            </div>
         )}
 
-        {/* RESULTATS (Fusion de ton UI Multi-plateformes) */}
+        {/* RESULTATS */}
         {result && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-10 items-start pb-20">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-10 items-start animate-slide-up pb-20">
             {/* TIKTOK */}
-            <div className="group relative bg-black border border-slate-800 rounded-3xl overflow-hidden hover:border-orange-500/50 transition-all shadow-2xl">
+            <div className="group relative bg-black border border-slate-800 rounded-3xl overflow-hidden hover:border-orange-500/50 transition-all duration-500 shadow-2xl">
               <div className="h-1 w-full bg-gradient-to-r from-pink-500 via-red-500 to-yellow-500"></div>
               <div className="p-5">
-                 <h2 className="text-xl font-bold mb-4 flex gap-2"><span className="text-pink-500">🎵</span> TikTok</h2>
-                 <div className="relative aspect-[9/16] bg-slate-900 rounded-xl overflow-hidden mb-4">
-                    <img src={imagePreview!} className="w-full h-full object-cover opacity-80" />
-                    <div className="absolute inset-0 flex items-center justify-center p-4">
-                        <span className="bg-black/70 text-white font-black text-xl text-center px-4 py-2 transform -rotate-2 border-2 border-orange-500 shadow-lg">{result.tiktok.hook}</span>
-                    </div>
-                 </div>
+                 <h2 className="text-xl font-bold text-white mb-4 flex gap-2"><span className="text-pink-500">🎵</span> TikTok</h2>
+                 <div className="relative aspect-[9/16] bg-slate-900 rounded-xl overflow-hidden mb-4"><img src={imagePreview!} className="w-full h-full object-cover opacity-80" /><div className="absolute inset-0 flex items-center justify-center p-4"><span className="bg-black/70 text-white font-black text-xl text-center px-4 py-2 transform -rotate-2 border-2 border-orange-500 shadow-lg">{result.tiktok.hook}</span></div></div>
                  <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800 relative">
                      <p className="text-sm text-slate-300 font-medium mb-3 pr-8 leading-relaxed whitespace-pre-line">{result.tiktok.caption}</p>
                      <p className="text-xs font-bold text-cyan-400 font-mono">{result.tiktok.hashtags}</p>
@@ -319,7 +343,7 @@ export default function Home() {
             <div className="group relative bg-gradient-to-b from-slate-900 to-black border border-slate-800 rounded-3xl overflow-hidden hover:border-orange-500/50 transition-all">
               <div className="h-1 w-full bg-gradient-to-r from-orange-400 to-purple-600"></div>
               <div className="p-5">
-                 <h2 className="text-xl font-bold mb-4 flex gap-2"><span className="text-orange-400">📸</span> Insta</h2>
+                 <h2 className="text-xl font-bold text-white mb-4 flex gap-2"><span className="text-orange-400">📸</span> Insta</h2>
                  <div className="aspect-square bg-slate-900 rounded-xl overflow-hidden mb-4"><img src={imagePreview!} className="w-full h-full object-cover" /></div>
                  <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800 relative">
                     <h3 className="text-orange-400 font-bold text-sm mb-2">{result.instagram.title}</h3>
@@ -334,7 +358,7 @@ export default function Home() {
             <div className="group relative bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden hover:border-blue-500/50 transition-all">
                <div className="h-1 w-full bg-blue-600"></div>
                <div className="p-5">
-                 <h2 className="text-xl font-bold mb-4 flex gap-2"><span className="text-blue-500">📘</span> Facebook</h2>
+                 <h2 className="text-xl font-bold text-white mb-4 flex gap-2"><span className="text-blue-500">📘</span> Facebook</h2>
                  <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 relative mb-4">
                     <h3 className="font-bold text-white mb-2">{result.facebook.title}</h3>
                     <p className="text-sm text-slate-300 leading-relaxed italic pr-8 whitespace-pre-line">"{result.facebook.caption}"</p>
@@ -347,7 +371,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* REGENERATE */}
+        {/* BARRE DE CONTRÔLE BASSE */}
         {result && (
             <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 flex gap-4 bg-slate-900/90 backdrop-blur-xl p-2 rounded-full border border-slate-700 shadow-2xl z-50">
                 <button onClick={() => { setResult(null); setImagePreview(null); setBase64Image(null); }} className="px-6 py-3 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition-all font-bold text-sm">🗑️ Effacer</button>

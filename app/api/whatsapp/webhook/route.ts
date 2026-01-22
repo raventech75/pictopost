@@ -9,7 +9,7 @@ const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_A
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // REMPLACE PAR TON URL DE WEBHOOK MAKE (SCENARIO MULTI-POST)
-const MAKE_WEBHOOK_URL = "https://hook.eu2.make.com/yv6c3wse4gk9mhdrfmp5w00xlp12abbg"; 
+const MAKE_WEBHOOK_URL = "https://hook.eu2.make.com/rynnsshcipdnx5kktc7uiipl592g5rdg"; 
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

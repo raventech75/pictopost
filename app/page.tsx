@@ -75,7 +75,8 @@ export default function Home() {
         const { data } = await supabase.from('profiles').insert([{ credits_remaining: 3 }]).select().single();
         if (data) {
           userId = data.id;
-          localStorage.setItem("pictopost_user_id", userId);
+          // CORRECTION ICI : On utilise directement data.id pour rassurer TypeScript
+          localStorage.setItem("pictopost_user_id", data.id);
         }
       }
 

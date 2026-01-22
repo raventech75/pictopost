@@ -97,7 +97,8 @@ export async function POST(req: NextRequest) {
 
 async function sendWhatsApp(to: string, body: string) {
   return twilioClient.messages.create({
-    from: process.env.TWILIO_PHONE_NUMBER,
+    // ON ÉCRIT LE NUMÉRO EN DUR ICI POUR LE TEST
+    from: 'whatsapp:+14155238886', // ESSAYEZ CE NUMÉRO (Le numéro standard Sandbox Twilio)
     to: to,
     body: body,
   });

@@ -4,7 +4,6 @@ import OpenAI from 'openai';
 import { supabase } from '@/lib/supabase';
 import { v2 as cloudinary } from 'cloudinary';
 
-// Configuration des clients
 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -12,7 +11,6 @@ cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
-  secure: true,
 });
 
 export async function POST(req: NextRequest) {
@@ -22,109 +20,82 @@ export async function POST(req: NextRequest) {
     const body = formData.get('Body')?.toString().trim() || "";
     const mediaUrl = formData.get('MediaUrl0') as string;
 
-    // 1. Vérification utilisateur
+    // --- 1. LIAISON AUTOMATIQUE ---
+    if (body.startsWith("Lier mon compte")) {
+      const userId = body.split(" ").pop();
+      await supabase.from('profiles').update({ whatsapp_number: from }).eq('id', userId);
+      await sendWhatsApp(from, "✅ Compte Pictopost lié ! Vous pouvez m'envoyer une photo pour votre prochain post.");
+      return NextResponse.json({ success: true });
+    }
+
+    // --- 2. RÉCUPÉRATION UTILISATEUR ---
     const { data: user } = await supabase.from('profiles').select('*').eq('whatsapp_number', from).single();
     if (!user) {
-      await sendWhatsApp(from, "❌ Numéro non reconnu sur Pictopost.");
+      await sendWhatsApp(from, "❌ Je ne reconnais pas ce numéro. Liez votre compte sur le site.");
       return NextResponse.json({ success: false });
     }
 
-    // 2. Gestion de la validation "OUI" (PUBLICATION)
+    // --- 3. GESTION DU "OUI" (PUBLICATION) ---
     if (body.toUpperCase() === 'OUI') {
-      // On récupère le dernier brouillon en attente
-      const { data: draft } = await supabase
-        .from('draft_posts')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
+      const { data: draft } = await supabase.from('draft_posts').select('*').eq('user_id', user.id).eq('status', 'pending').order('created_at', { ascending: false }).limit(1).single();
       if (draft) {
-        await sendWhatsApp(from, "🚀 Je publie l'image retouchée et le texte sur vos réseaux...");
-        
-        // --- ZONE DE PUBLICATION ---
-        // C'est ICI que tu mettras ton appel à l'API Instagram/Facebook plus tard.
-        // Tu as accès à : draft.image_url (l'URL Cloudinary propre) et draft.caption (le texte)
-        console.log("PUBLIER CECI :", draft.image_url, draft.caption);
-        // ---------------------------
-
-        // On marque comme publié dans la DB
+        await sendWhatsApp(from, "🚀 Publication en cours...");
         await supabase.from('draft_posts').update({ status: 'published' }).eq('id', draft.id);
-        await sendWhatsApp(from, "✅ C'est en ligne ! Retrouvez votre post sur votre fil.");
-      } else {
-        await sendWhatsApp(from, "Aucun post en attente.");
+        await sendWhatsApp(from, "✅ C'est en ligne !");
       }
       return NextResponse.json({ success: true });
     }
 
-    // 3. Traitement de l'image (NETTOYAGE + RÉDACTION)
+    // --- 4. TRAITEMENT PHOTO (CRÉDITS + CLOUDINARY + IA) ---
     if (mediaUrl) {
-      await sendWhatsApp(from, "🎨 J'ai reçu l'image ! Je la nettoie, je l'embellis et je rédige le texte. Un instant...");
+      if (user.credits_remaining <= 0) {
+        await sendWhatsApp(from, "⚠️ Crédits épuisés. Rendez-vous sur Pictopost pour en rajouter.");
+        return NextResponse.json({ success: false });
+      }
 
-      // A. Téléchargement depuis Twilio
+      await sendWhatsApp(from, "🎨 Retouche de l'image en cours...");
+
+      // Download Twilio Image -> Base64
       const responseMedia = await fetch(mediaUrl, {
         headers: { Authorization: `Basic ${Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64')}` },
       });
       const buffer = await responseMedia.arrayBuffer();
-      const base64Image = `data:${responseMedia.headers.get('content-type')};base64,${Buffer.from(buffer).toString('base64')}`;
+      const b64 = `data:${responseMedia.headers.get('content-type')};base64,${Buffer.from(buffer).toString('base64')}`;
 
-      // B. MAGIE CLOUDINARY : Nettoyage et upload
-      // On applique une amélioration auto et une suppression de fond si besoin
-      const cloudinaryResponse = await cloudinary.uploader.upload(base64Image, {
-        folder: 'pictopost_uploads',
-        // Tu peux ajouter 'e_background_removal' si tu veux détourer l'objet
-        transformation: [{ effect: "improve:outdoor" }, { quality: "auto" }, { fetch_format: "auto" }]
+      // Cloudinary Clean-up
+      const cloudRes = await cloudinary.uploader.upload(b64, {
+        folder: 'whatsapp_uploads',
+        transformation: [{ effect: "improve:outdoor" }, { quality: "auto" }]
       });
-      
-      const finalImageUrl = cloudinaryResponse.secure_url; // L'URL permanente et propre
 
-      // C. Rédaction IA avec l'image propre (Optionnel : on peut envoyer l'originale à GPT si on préfère)
-      const response = await openai.chat.completions.create({
+      // OpenAI Caption (On utilise GPT-4o ici car c'est plus précis pour l'image)
+      const ai = await openai.chat.completions.create({
         model: "gpt-4o",
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: `Rédige un post Instagram vendeur pour cette image. Ton : ${user.brand_tone || 'chaleureux'}. Utilise des emojis.` },
-              { type: "image_url", image_url: { url: base64Image } }, // On montre l'originale à GPT pour qu'il comprenne le contexte
-            ],
-          },
-        ],
+        messages: [{ role: "user", content: [{ type: "text", text: `Rédige un post Instagram vendeur pour cette image. Ton : ${user.brand_tone || 'Standard'}` }, { type: "image_url", image_url: { url: b64 } }] }]
       });
 
-      const aiText = response.choices[0].message.content || "";
+      const caption = ai.choices[0].message.content || "";
 
-      // D. Sauvegarde dans Supabase (Image propre + Texte)
-      await supabase.from('draft_posts').insert([
-        { user_id: user.id, image_url: finalImageUrl, caption: aiText }
-      ]);
+      // Save Draft & Décrémenter crédit
+      await supabase.from('draft_posts').insert([{ user_id: user.id, image_url: cloudRes.secure_url, caption }]);
+      await supabase.from('profiles').update({ credits_remaining: user.credits_remaining - 1 }).eq('id', user.id);
 
-      // E. Envoi de la proposition (On renvoie l'image propre pour validation)
-      await sendMediaWhatsApp(from, finalImageUrl, `✨ *PROPOSITION :*\n\n"${aiText}"\n\n✅ Répondez *OUI* pour publier cette image et ce texte.`);
+      // Reply with Image
+      await twilioClient.messages.create({
+        from: 'whatsapp:+14155238886', // NUMÉRO DUR COMME DEMANDÉ
+        to: from,
+        body: `✨ PROPOSITION :\n\n"${caption}"\n\n✅ Répondez OUI pour publier.`,
+        mediaUrl: [cloudRes.secure_url]
+      });
     }
 
     return NextResponse.json({ success: true });
   } catch (err) {
-    console.error("Erreur Webhook:", err);
-    return NextResponse.json({ error: "Erreur interne" }, { status: 500 });
+    console.error(err);
+    return NextResponse.json({ error: "Internal Error" }, { status: 500 });
   }
 }
 
-// Fonction utilitaire pour envoyer des messages texte
 async function sendWhatsApp(to: string, body: string) {
-  // NOTE : Remets process.env.TWILIO_PHONE_NUMBER une fois tes variables Vercel corrigées.
   return twilioClient.messages.create({ from: 'whatsapp:+14155238886', to, body });
-}
-
-// NOUVELLE fonction utilitaire pour envoyer une IMAGE sur WhatsApp
-async function sendMediaWhatsApp(to: string, mediaUrl: string, body: string) {
-  // NOTE : Remets process.env.TWILIO_PHONE_NUMBER une fois tes variables Vercel corrigées.
-  return twilioClient.messages.create({
-    from: 'whatsapp:+14155238886',
-    to: to,
-    body: body,
-    mediaUrl: [mediaUrl] // C'est ça qui affiche l'image dans WhatsApp
-  });
 }

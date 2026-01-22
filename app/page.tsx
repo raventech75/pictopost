@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase"; // Import ajouté
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
@@ -8,6 +9,9 @@ export default function Home() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [base64Image, setBase64Image] = useState<string | null>(null);
   
+  // NOUVEAU : État du profil pour les crédits
+  const [profile, setProfile] = useState<any>(null);
+
   // Champs
   const [city, setCity] = useState("");
   const [businessName, setBusinessName] = useState("");
@@ -29,6 +33,18 @@ export default function Home() {
     { id: "Urgence", label: "🔥 Promo" },
   ];
 
+  // NOUVEAU : Charger le profil Supabase au montage
+  useEffect(() => {
+    async function loadProfile() {
+      const { data } = await supabase.from('profiles').select('*').limit(1).single();
+      if (data) {
+        setProfile(data);
+        if (data.brand_tone) setTone(data.brand_tone);
+      }
+    }
+    loadProfile();
+  }, []);
+
   useEffect(() => {
     if (loading) {
       setProgress(0);
@@ -42,8 +58,13 @@ export default function Home() {
   }, [loading]);
 
   const generatePosts = async (b64: string) => {
-    // DOUBLE SÉCURITÉ : Vérification de la taille de la chaîne Base64
-    // 1 caractère = 1 octet environ. Si > 4 millions (~4Mo), on arrête tout.
+    // SÉCURITÉ CRÉDITS
+    if (profile && profile.credits_remaining <= 0) {
+      alert("⚠️ Vous n'avez plus de crédits. Passez à l'offre Pro pour continuer !");
+      setLoading(false);
+      return;
+    }
+
     if (b64.length > 4000000) {
       alert("L'image est encore trop lourde même compressée. Essayez une autre photo.");
       setLoading(false);
@@ -55,16 +76,26 @@ export default function Home() {
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: b64, city, tone, businessName }),
+        body: JSON.stringify({ 
+          imageBase64: b64, 
+          city, 
+          tone, 
+          businessName,
+          userId: profile?.id // ON PASSE L'ID POUR DÉCRÉMENTER
+        }),
       });
       
       if (!response.ok) {
-        if (response.status === 413) throw new Error("Image trop lourde pour le serveur.");
-        throw new Error("Erreur lors de la génération.");
+        const errData = await response.json();
+        throw new Error(errData.error || "Erreur lors de la génération.");
       }
       
       const data = await response.json();
       setResult(data);
+      
+      // Mise à jour locale du compteur de crédits
+      if (profile) setProfile({...profile, credits_remaining: profile.credits_remaining - 1});
+
     } catch (error: any) {
       alert("Oups : " + error.message);
     } finally {
@@ -72,7 +103,6 @@ export default function Home() {
     }
   };
 
-  // --- COMPRESSION AGRESSIVE (JPEG 60%) ---
   const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -83,24 +113,16 @@ export default function Home() {
         img.onload = () => {
           const canvas = document.createElement("canvas");
           const ctx = canvas.getContext("2d");
-          
-          // On réduit la taille max à 800px (Suffisant pour GPT-4o)
           const MAX_WIDTH = 800;
           let width = img.width;
           let height = img.height;
-
           if (width > MAX_WIDTH) {
             height = height * (MAX_WIDTH / width);
             width = MAX_WIDTH;
           }
-
           canvas.width = width;
           canvas.height = height;
-
-          // Dessin
           ctx?.drawImage(img, 0, 0, width, height);
-          
-          // FORCE LE JPEG (Plus léger que PNG) + QUALITÉ 0.6 (60%)
           const compressedBase64 = canvas.toDataURL("image/jpeg", 0.6);
           resolve(compressedBase64);
         };
@@ -112,22 +134,16 @@ export default function Home() {
 
   const processFile = async (file: File) => {
     if (!file || !file.type.startsWith("image/")) return;
-
-    // ALERTE IMMÉDIATE SI FICHIER D'ORIGINE GIGANTESQUE (> 10Mo)
     if (file.size > 10 * 1024 * 1024) {
       alert("Votre photo est vraiment trop grosse (>10Mo). Veuillez la réduire un peu avant.");
       return;
     }
-    
     setImagePreview(URL.createObjectURL(file));
     setResult(null);
     setLoading(true);
-
     try {
-      // Compression
       const compressedBase64 = await compressImage(file);
       setBase64Image(compressedBase64);
-      // Envoi
       generatePosts(compressedBase64);
     } catch (error) {
       alert("Erreur lors du traitement de l'image.");
@@ -171,54 +187,68 @@ export default function Home() {
   return (
     <main className="min-h-screen font-sans text-white relative overflow-hidden bg-slate-950 selection:bg-orange-500 selection:text-white">
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 z-0"></div>
-      <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] rounded-full bg-orange-600/20 blur-[120px] pointer-events-none"></div>
+      
+      {/* NOUVEAU : BANNIÈRE DE CRÉDITS ET WHATSAPP */}
+      {profile && (
+        <div className="relative z-50 flex justify-center gap-4 pt-6 animate-fade-in">
+          <div className="bg-slate-900/80 border border-slate-800 backdrop-blur-md px-4 py-2 rounded-full flex items-center gap-2">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Crédits</span>
+            <span className={`text-sm font-black ${profile.credits_remaining > 0 ? 'text-orange-500' : 'text-red-500'}`}>
+              {profile.credits_remaining} / 3
+            </span>
+          </div>
+          <a 
+            href={`https://wa.me/14155238886?text=Lier%20mon%20compte%20${profile.id}`}
+            className="bg-green-600/20 border border-green-500/50 hover:bg-green-600/30 text-green-400 px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2"
+          >
+            <span>📲</span> {profile.whatsapp_number ? "WhatsApp Activé" : "Lier WhatsApp"}
+          </a>
+        </div>
+      )}
 
       {/* BOUTON CONTACT */}
       <button 
         onClick={() => setShowFeedback(true)}
         className="fixed top-6 right-6 z-50 bg-slate-900 border border-slate-700 hover:border-orange-500 text-slate-300 hover:text-white px-4 py-2 rounded-full text-sm font-bold shadow-xl transition-all flex items-center gap-2 hover:scale-105"
       >
-        <span>📩</span> <span className="hidden sm:inline">Contact / Idée</span>
+        <span>📩</span> <span className="hidden sm:inline">Contact</span>
       </button>
 
       {/* MODALE CONTACT */}
       {showFeedback && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl relative text-center">
                 <button onClick={() => setShowFeedback(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white">✕</button>
                 <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">📬</div>
-                <h2 className="text-2xl font-bold mb-2 text-white">Contactez-nous</h2>
-                <p className="text-slate-400 text-sm mb-6">Une idée d'amélioration ? Un bug ? <br/> Copiez notre adresse et écrivez-nous !</p>
-                <div className="bg-black/50 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-4 mb-6 group hover:border-orange-500/50 transition-colors">
-                    <span className="text-orange-400 font-mono text-sm sm:text-base font-bold truncate">raventech75@gmail.com</span>
-                    <button onClick={copyEmail} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition-colors whitespace-nowrap">
-                        {emailCopied ? "✅ Copié !" : "📋 Copier"}
+                <h2 className="text-2xl font-bold mb-2">Contactez-nous</h2>
+                <div className="bg-black/50 border border-slate-800 rounded-xl p-4 flex items-center justify-between gap-4 mb-6 mt-4">
+                    <span className="text-orange-400 font-mono text-sm font-bold truncate">raventech75@gmail.com</span>
+                    <button onClick={copyEmail} className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-lg text-xs font-bold transition-colors">
+                        {emailCopied ? "✅" : "📋"}
                     </button>
                 </div>
-                <button onClick={() => setShowFeedback(false)} className="text-slate-500 hover:text-white text-sm underline underline-offset-4">Fermer</button>
+                <button onClick={() => setShowFeedback(false)} className="text-slate-500 hover:text-white text-sm underline">Fermer</button>
             </div>
         </div>
       )}
 
       <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 relative z-10">
-        
-        {/* HEADER */}
         <div className="text-center mb-10 space-y-4">
           <h1 className="text-6xl md:text-8xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-white via-orange-100 to-orange-400">
             Pictopost
           </h1>
-          <p className="text-xl text-slate-400 max-w-2xl mx-auto font-light">
-            L'outil secret des commerçants qui cartonnent sur les réseaux.
+          <p className="text-xl text-slate-400 max-w-2xl mx-auto font-light italic">
+            Votre Community Manager IA, de votre poche à vos réseaux.
           </p>
         </div>
 
         {/* ZONE CONFIG */}
         {!result && !loading && (
-          <div className="max-w-3xl mx-auto mb-10 bg-slate-900/50 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-2xl animate-fade-in-up">
+          <div className="max-w-3xl mx-auto mb-10 bg-slate-900/50 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-2xl">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                 <div className="col-span-1 md:col-span-3">
                      <label className="block text-slate-400 text-xs font-bold mb-2 uppercase tracking-wider">🏢 Nom du commerce</label>
-                     <input type="text" placeholder="Ex: Le Braisé d'Or..." value={businessName} onChange={(e) => setBusinessName(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 focus:outline-none focus:border-orange-500 transition-all text-sm font-bold placeholder-slate-700" />
+                     <input type="text" placeholder="Ex: Le Braisé d'Or..." value={businessName} onChange={(e) => setBusinessName(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 focus:outline-none focus:border-orange-500 transition-all text-sm font-bold" />
                 </div>
                 <div>
                     <label className="block text-slate-400 text-xs font-bold mb-2 uppercase tracking-wider">📍 Ville</label>
@@ -240,9 +270,8 @@ export default function Home() {
                 <input type="file" accept="image/*" onChange={handleFileInput} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                 <div className="flex flex-col items-center justify-center space-y-4 pointer-events-none">
                     <div className={`p-4 rounded-full bg-slate-800 transition-transform ${isDragging ? "scale-110" : "group-hover:scale-110"}`}><span className="text-4xl">📸</span></div>
-                    <div className="text-center">
-                        <p className="text-lg font-bold text-white">{isDragging ? "Lâchez tout !" : "Cliquez ou glissez une photo"}</p>
-                        {/* INDICATION CLAIRE DE LA LIMITE */}
+                    <div>
+                        <p className="text-lg font-bold text-white">{isDragging ? "Lâchez pour poster !" : "Glissez une photo ici"}</p>
                         <p className="text-xs text-slate-500 mt-2 font-mono uppercase tracking-wide">JPG, PNG • Max 10 Mo</p>
                     </div>
                 </div>
@@ -252,27 +281,32 @@ export default function Home() {
 
         {/* LOADER */}
         {loading && imagePreview && (
-           <div className="max-w-xl mx-auto flex flex-col items-center justify-center mt-8 animate-fade-in-up bg-slate-900/50 p-8 rounded-3xl border border-slate-800">
+           <div className="max-w-xl mx-auto flex flex-col items-center mt-8 bg-slate-900/50 p-8 rounded-3xl border border-slate-800">
              <div className="relative mb-6 w-32 h-32">
                <img src={imagePreview} className="w-full h-full object-cover rounded-xl border-2 border-slate-700 opacity-50" />
                <div className="absolute inset-0 flex items-center justify-center"><div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-orange-500"></div></div>
              </div>
              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700">
-               <div className="bg-gradient-to-r from-orange-500 to-pink-600 h-full rounded-full transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
+               <div className="bg-gradient-to-r from-orange-500 to-pink-600 h-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
              </div>
-             <p className="text-orange-400 mt-4 font-mono text-xs animate-pulse tracking-widest uppercase">Optimisation & Analyse IA...</p>
+             <p className="text-orange-400 mt-4 font-mono text-xs animate-pulse tracking-widest uppercase text-center">Magie de l'IA en cours...</p>
            </div>
         )}
 
-        {/* RESULTATS */}
+        {/* RESULTATS (Fusion de ton UI Multi-plateformes) */}
         {result && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-10 items-start animate-slide-up pb-20">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-10 items-start pb-20">
             {/* TIKTOK */}
-            <div className="group relative bg-black border border-slate-800 rounded-3xl overflow-hidden hover:border-orange-500/50 transition-all duration-500 shadow-2xl">
+            <div className="group relative bg-black border border-slate-800 rounded-3xl overflow-hidden hover:border-orange-500/50 transition-all shadow-2xl">
               <div className="h-1 w-full bg-gradient-to-r from-pink-500 via-red-500 to-yellow-500"></div>
               <div className="p-5">
-                 <h2 className="text-xl font-bold text-white mb-4 flex gap-2"><span className="text-pink-500">🎵</span> TikTok</h2>
-                 <div className="relative aspect-[9/16] bg-slate-900 rounded-xl overflow-hidden mb-4"><img src={imagePreview!} className="w-full h-full object-cover opacity-80" /><div className="absolute inset-0 flex items-center justify-center p-4"><span className="bg-black/70 text-white font-black text-xl text-center px-4 py-2 transform -rotate-2 border-2 border-orange-500 shadow-lg">{result.tiktok.hook}</span></div></div>
+                 <h2 className="text-xl font-bold mb-4 flex gap-2"><span className="text-pink-500">🎵</span> TikTok</h2>
+                 <div className="relative aspect-[9/16] bg-slate-900 rounded-xl overflow-hidden mb-4">
+                    <img src={imagePreview!} className="w-full h-full object-cover opacity-80" />
+                    <div className="absolute inset-0 flex items-center justify-center p-4">
+                        <span className="bg-black/70 text-white font-black text-xl text-center px-4 py-2 transform -rotate-2 border-2 border-orange-500 shadow-lg">{result.tiktok.hook}</span>
+                    </div>
+                 </div>
                  <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800 relative">
                      <p className="text-sm text-slate-300 font-medium mb-3 pr-8 leading-relaxed whitespace-pre-line">{result.tiktok.caption}</p>
                      <p className="text-xs font-bold text-cyan-400 font-mono">{result.tiktok.hashtags}</p>
@@ -285,7 +319,7 @@ export default function Home() {
             <div className="group relative bg-gradient-to-b from-slate-900 to-black border border-slate-800 rounded-3xl overflow-hidden hover:border-orange-500/50 transition-all">
               <div className="h-1 w-full bg-gradient-to-r from-orange-400 to-purple-600"></div>
               <div className="p-5">
-                 <h2 className="text-xl font-bold text-white mb-4 flex gap-2"><span className="text-orange-400">📸</span> Insta</h2>
+                 <h2 className="text-xl font-bold mb-4 flex gap-2"><span className="text-orange-400">📸</span> Insta</h2>
                  <div className="aspect-square bg-slate-900 rounded-xl overflow-hidden mb-4"><img src={imagePreview!} className="w-full h-full object-cover" /></div>
                  <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800 relative">
                     <h3 className="text-orange-400 font-bold text-sm mb-2">{result.instagram.title}</h3>
@@ -300,14 +334,14 @@ export default function Home() {
             <div className="group relative bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden hover:border-blue-500/50 transition-all">
                <div className="h-1 w-full bg-blue-600"></div>
                <div className="p-5">
-                 <h2 className="text-xl font-bold text-white mb-4 flex gap-2"><span className="text-blue-500">📘</span> Facebook</h2>
+                 <h2 className="text-xl font-bold mb-4 flex gap-2"><span className="text-blue-500">📘</span> Facebook</h2>
                  <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 relative mb-4">
                     <h3 className="font-bold text-white mb-2">{result.facebook.title}</h3>
                     <p className="text-sm text-slate-300 leading-relaxed italic pr-8 whitespace-pre-line">"{result.facebook.caption}"</p>
                     <CopyButton text={`${result.facebook.title}\n\n${result.facebook.caption}`} id="fb" />
                  </div>
                  <div className="aspect-video bg-slate-900 rounded-lg overflow-hidden mb-4"><img src={imagePreview!} className="w-full h-full object-cover" /></div>
-                 <button className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-sm uppercase">{result.facebook.title.includes("CTA") ? "Réserver" : "En savoir plus"}</button>
+                 <button className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-sm uppercase">Optimisé Facebook</button>
                </div>
             </div>
           </div>

@@ -45,45 +45,34 @@ export default function Home() {
   // 2. GESTION DE L'AUTHENTIFICATION (CŒUR DU SYSTÈME)
   // =================================================================================
 
-  useEffect(() => {
-    // On installe un écouteur qui surveille si l'utilisateur se connecte
-    // ou s'il revient de Facebook après avoir validé les permissions.
+useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log("🔔 Changement d'état Auth :", event);
 
       if (session) {
-        // L'utilisateur est connecté (Session active)
         const userId = session.user.id;
-        
-        // On stocke l'ID dans le navigateur pour s'en souvenir
         localStorage.setItem("pictopost_user_id", userId);
 
-        // CAS SPÉCIAL : Retour de connexion Facebook
+        // 1. ON CHARGE LE PROFIL IMMÉDIATEMENT (Pour que l'affichage soit instantané)
+        await loadUserProfile(userId);
+
+        // 2. SI RETOUR FACEBOOK, ON SAUVEGARDE LES TOKENS EN ARRIÈRE-PLAN
         if (session.provider_token) {
-          console.log("✅ Token Facebook détecté ! Lancement de la sauvegarde...");
-          await saveSocialTokens(session.user.id, session.provider_token);
-        } else {
-          // Connexion standard (déjà connecté)
-          console.log("👤 Chargement du profil utilisateur...");
-          loadUserProfile(userId);
+          console.log("✅ Token Facebook détecté, sauvegarde en background...");
+          saveSocialTokens(userId, session.provider_token).then(() => {
+             // Une fois fini, on recharge juste pour être sûr d'avoir les badges verts
+             loadUserProfile(userId);
+          });
         }
       } else {
-        // Pas de session (Utilisateur déconnecté ou Invité)
+        // Mode Invité
         const localId = localStorage.getItem("pictopost_user_id");
-        if (localId) {
-          // On le reconnaît grâce au LocalStorage
-          loadUserProfile(localId);
-        } else {
-          // C'est un tout nouvel invité, on lui crée un profil vide
-          createGuestUser();
-        }
+        if (localId) loadUserProfile(localId);
+        else createGuestUser();
       }
     });
 
-    // Nettoyage de l'écouteur quand on quitte la page
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
+    return () => { authListener.subscription.unsubscribe(); };
   }, []);
 
   // --- Sauvegarde des Tokens Facebook & Instagram dans Supabase ---

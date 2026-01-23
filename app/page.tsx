@@ -77,21 +77,24 @@ export default function Home() {
   // --- Sauvegarde des Tokens ---
   const saveSocialTokens = async (uid: string, token: string) => {
     try {
-        console.log("Token reçu, début analyse...");
-        // 1. Sauvegarde Token User
+        console.log("Token reçu, analyse...");
+        
+        // Sauvegarde préventive
         const { data: existing } = await supabase.from('profiles').select('id').eq('id', uid).single();
-        if (!existing) await supabase.from('profiles').insert([{ id: uid, credits_remaining: 3, facebook_access_token: token }]);
+        if (!existing) await supabase.from('profiles').insert([{ id: uid, credits_remaining: 100, facebook_access_token: token }]); // J'ai forcé 100 crédits ici au cas où
         else await supabase.from('profiles').update({ facebook_access_token: token }).eq('id', uid);
 
-        // 2. Récupération Pages
+        // Appel Facebook
         const resPages = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${token}`);
         const dataPages = await resPages.json();
         
+        // --- DIAGNOSTIC ULTIME ---
+        // On affiche TOUT ce que Facebook répond dans une alerte
+        alert("RÉPONSE FACEBOOK BRUTE :\n" + JSON.stringify(dataPages, null, 2)); 
+        // -------------------------
+
         if (dataPages.data && dataPages.data.length > 0) {
             const page = dataPages.data[0];
-            alert(`📄 Page Facebook trouvée : ${page.name} (ID: ${page.id})`); // DIAGNOSTIC
-            
-            // 3. Récupération Instagram
             const resIg = await fetch(`https://graph.facebook.com/v19.0/${page.id}?fields=instagram_business_account,access_token&access_token=${token}`);
             const dataIg = await resIg.json();
 
@@ -103,18 +106,13 @@ export default function Home() {
             if (dataIg.instagram_business_account) {
                 updates.instagram_business_id = dataIg.instagram_business_account.id;
                 updates.instagram_access_token = token; 
-                alert(`📸 Instagram Business trouvé ! (ID: ${dataIg.instagram_business_account.id})`); // SUCCESS
+                alert(`✅ SUCCÈS TOTAL ! Instagram ID : ${dataIg.instagram_business_account.id}`);
             } else {
-                alert("⚠️ ATTENTION : Page Facebook trouvée, MAIS AUCUN Instagram Business lié ! Vérifiez Meta Business Suite."); // L'ERREUR EST ICI
+                alert("⚠️ Page trouvée (" + page.name + ") mais pas d'Instagram lié.");
             }
 
             await supabase.from('profiles').update(updates).eq('id', uid);
-            
-            // Rechargement pour affichage
             await loadUserProfile(uid);
-            
-        } else {
-            alert("❌ Aucune Page Facebook trouvée sur ce compte !");
         }
     } catch (e: any) {
         alert("Erreur Technique : " + e.message);

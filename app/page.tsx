@@ -135,7 +135,7 @@ export default function Home() {
     await supabase.auth.signInWithOAuth({
       provider: 'facebook',
       options: {
-        redirectTo: window.location.origin,
+        redirectTo: 'https://pictopost.vercel.app',
         scopes: 'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish'
       },
     });

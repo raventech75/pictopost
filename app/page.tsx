@@ -14,6 +14,7 @@ export default function Home() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [base64Image, setBase64Image] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   // États Utilisateur (SaaS)
   const [profile, setProfile] = useState<any>(null);
@@ -47,25 +48,24 @@ export default function Home() {
 
 useEffect(() => {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("🔔 Changement d'état Auth :", event);
-
       if (session) {
         const userId = session.user.id;
         localStorage.setItem("pictopost_user_id", userId);
 
-        // 1. ON CHARGE LE PROFIL IMMÉDIATEMENT (Pour que l'affichage soit instantané)
-        await loadUserProfile(userId);
-
-        // 2. SI RETOUR FACEBOOK, ON SAUVEGARDE LES TOKENS EN ARRIÈRE-PLAN
+        // Si on revient de Facebook avec un Token
         if (session.provider_token) {
-          console.log("✅ Token Facebook détecté, sauvegarde en background...");
-          saveSocialTokens(userId, session.provider_token).then(() => {
-             // Une fois fini, on recharge juste pour être sûr d'avoir les badges verts
-             loadUserProfile(userId);
-          });
+          setIsConnecting(true); // On affiche "Connexion en cours..."
+          console.log("🔄 Sauvegarde des clés Facebook...");
+          
+          // ON ATTEND LA FIN DE LA SAUVEGARDE AVANT DE CHARGER LE PROFIL
+          await saveSocialTokens(session.user.id, session.provider_token);
+          
+          setIsConnecting(false);
+        } else {
+          // Connexion normale
+          loadUserProfile(userId);
         }
       } else {
-        // Mode Invité
         const localId = localStorage.getItem("pictopost_user_id");
         if (localId) loadUserProfile(localId);
         else createGuestUser();
@@ -75,63 +75,89 @@ useEffect(() => {
     return () => { authListener.subscription.unsubscribe(); };
   }, []);
 
-  // --- Sauvegarde des Tokens Facebook & Instagram dans Supabase ---
+  // --- REMPLACE TOUTE LA FONCTION saveSocialTokens PAR CELLE-CI ---
   const saveSocialTokens = async (uid: string, token: string) => {
     try {
-        // 1. Sauvegarde du Token principal Facebook
+        // 1. On sauvegarde le token user
         const { data: existing } = await supabase.from('profiles').select('id').eq('id', uid).single();
-        
-        if (!existing) {
-             // Si le profil n'existe pas, on le crée
-             await supabase.from('profiles').insert([{ 
-                 id: uid, 
-                 credits_remaining: 3, 
-                 facebook_access_token: token 
-             }]);
-        } else {
-             // Sinon on met à jour le token
-             await supabase.from('profiles').update({ 
-                 facebook_access_token: token 
-             }).eq('id', uid);
-        }
+        if (!existing) await supabase.from('profiles').insert([{ id: uid, credits_remaining: 3, facebook_access_token: token }]);
+        else await supabase.from('profiles').update({ facebook_access_token: token }).eq('id', uid);
 
-        // 2. Interrogation de l'API Facebook pour trouver les Pages gérées
+        // 2. On récupère les Pages et Insta
         const resPages = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${token}`);
         const dataPages = await resPages.json();
         
         if (dataPages.data && dataPages.data.length > 0) {
-            const page = dataPages.data[0]; // On prend la première page trouvée
-            console.log("📄 Page trouvée :", page.name);
-
-            // 3. Interrogation de la Page pour trouver le compte Instagram lié
+            const page = dataPages.data[0];
             const resIg = await fetch(`https://graph.facebook.com/v19.0/${page.id}?fields=instagram_business_account,access_token&access_token=${token}`);
             const dataIg = await resIg.json();
 
-            // Préparation des données à sauvegarder
             const updates: any = {
                 facebook_page_id: page.id,
                 facebook_access_token: dataIg.access_token || token 
             };
 
             if (dataIg.instagram_business_account) {
-                console.log("📸 Compte Instagram Business trouvé !");
                 updates.instagram_business_id = dataIg.instagram_business_account.id;
                 updates.instagram_access_token = token; 
             }
 
-            // 4. Enregistrement final en base de données
+            // 3. MISE A JOUR FINALE
             await supabase.from('profiles').update(updates).eq('id', uid);
             
-            // 5. Rafraîchissement de l'interface
+            // 4. CRUCIAL : ON RECHARGE LE PROFIL MAINTENANT POUR AFFICHER LES ID
             await loadUserProfile(uid);
             
-            // 6. Nettoyage de l'URL (pour enlever le token visible)
-            window.history.replaceState({}, document.title, "/");
-            alert("✅ Vos réseaux sociaux ont été connectés avec succès !");
+            alert("✅ Comptes connectés avec succès !");
+        }
+    } catch (e) { 
+        console.error(e); 
+        alert("Erreur de connexion réseaux.");
+    } finally {
+        // On nettoie l'URL
+        window.history.replaceState({}, document.title, "/");
+    }
+  };
+
+  // --- Sauvegarde des Tokens Facebook & Instagram dans Supabase ---
+  const saveSocialTokens = async (uid: string, token: string) => {
+    try {
+        // Sauvegarde de base (Token User)
+        const { data: existing } = await supabase.from('profiles').select('id').eq('id', uid).single();
+        if (!existing) await supabase.from('profiles').insert([{ id: uid, credits_remaining: 3, facebook_access_token: token }]);
+        else await supabase.from('profiles').update({ facebook_access_token: token }).eq('id', uid);
+
+        // Récupération Pages
+        const resPages = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${token}`);
+        const dataPages = await resPages.json();
+        
+        if (dataPages.data && dataPages.data.length > 0) {
+            const page = dataPages.data[0];
+            
+            // Récupération Instagram
+            const resIg = await fetch(`https://graph.facebook.com/v19.0/${page.id}?fields=instagram_business_account,access_token&access_token=${token}`);
+            const dataIg = await resIg.json();
+
+            const updates: any = {
+                facebook_page_id: page.id,
+                facebook_access_token: dataIg.access_token || token 
+            };
+
+            if (dataIg.instagram_business_account) {
+                updates.instagram_business_id = dataIg.instagram_business_account.id;
+                updates.instagram_access_token = token; 
+            }
+
+            await supabase.from('profiles').update(updates).eq('id', uid);
+            alert("✅ Réseaux connectés avec succès !");
+        } else {
+            console.log("⚠️ Pas de page Facebook trouvée, mais token utilisateur sauvegardé.");
         }
     } catch (e) {
-        console.error("❌ Erreur sauvegarde tokens :", e);
-        alert("Erreur lors de la connexion aux réseaux sociaux.");
+        console.error("Erreur sauvegarde tokens :", e);
+    } finally {
+        // Nettoyage URL dans tous les cas
+        window.history.replaceState({}, document.title, "/");
     }
   };
 

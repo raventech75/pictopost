@@ -75,8 +75,9 @@ export default function Home() {
   }, []);
 
   // --- Sauvegarde des Tokens ---
-  const saveSocialTokens = async (uid: string, token: string) => {
+  cconst saveSocialTokens = async (uid: string, token: string) => {
     try {
+        console.log("Token reçu, début analyse...");
         // 1. Sauvegarde Token User
         const { data: existing } = await supabase.from('profiles').select('id').eq('id', uid).single();
         if (!existing) await supabase.from('profiles').insert([{ id: uid, credits_remaining: 3, facebook_access_token: token }]);
@@ -88,6 +89,9 @@ export default function Home() {
         
         if (dataPages.data && dataPages.data.length > 0) {
             const page = dataPages.data[0];
+            alert(`📄 Page Facebook trouvée : ${page.name} (ID: ${page.id})`); // DIAGNOSTIC
+            
+            // 3. Récupération Instagram
             const resIg = await fetch(`https://graph.facebook.com/v19.0/${page.id}?fields=instagram_business_account,access_token&access_token=${token}`);
             const dataIg = await resIg.json();
 
@@ -99,16 +103,24 @@ export default function Home() {
             if (dataIg.instagram_business_account) {
                 updates.instagram_business_id = dataIg.instagram_business_account.id;
                 updates.instagram_access_token = token; 
+                alert(`📸 Instagram Business trouvé ! (ID: ${dataIg.instagram_business_account.id})`); // SUCCESS
+            } else {
+                alert("⚠️ ATTENTION : Page Facebook trouvée, MAIS AUCUN Instagram Business lié ! Vérifiez Meta Business Suite."); // L'ERREUR EST ICI
             }
 
             await supabase.from('profiles').update(updates).eq('id', uid);
-            alert("✅ Réseaux connectés avec succès !");
+            
+            // Rechargement pour affichage
+            await loadUserProfile(uid);
+            
+        } else {
+            alert("❌ Aucune Page Facebook trouvée sur ce compte !");
         }
-    } catch (e) {
-        console.error("Erreur save tokens:", e);
+    } catch (e: any) {
+        alert("Erreur Technique : " + e.message);
     } finally {
-        // Nettoyage URL
         window.history.replaceState({}, document.title, "/");
+        setIsConnecting(false);
     }
   };
 

@@ -412,29 +412,29 @@ export default function Home() {
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 z-0"></div>
       <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] rounded-full bg-orange-600/20 blur-[120px] pointer-events-none"></div>
 
-      {/* --- HEADER --- */}
-      <div className="relative z-50 flex flex-wrap justify-center gap-4 pt-6 animate-fade-in min-h-[60px]">
+    {/* HEADER RESPONSIVE : Vertical sur mobile, Horizontal sur Ordi */}
+      <div className="relative z-50 flex flex-col md:flex-row items-center justify-center gap-3 pt-6 animate-fade-in min-h-[60px] px-4">
         {profile ? (
           <>
-            {/* Compteur de Crédits */}
-            <div className="bg-slate-900/80 border border-slate-800 backdrop-blur-md px-4 py-2 rounded-full flex items-center gap-2 shadow-lg">
+            {/* 1. Compteur Crédits */}
+            <div className="bg-slate-900/80 border border-slate-800 backdrop-blur-md px-4 py-2 rounded-full flex items-center gap-2 shadow-sm w-full md:w-auto justify-center">
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Crédits</span>
               <span className={`text-sm font-black ${profile.credits_remaining > 0 ? 'text-orange-500' : 'text-red-500'}`}>
                 {profile.credits_remaining}
               </span>
             </div>
             
-            {/* Upload Logo */}
-            <label className="cursor-pointer bg-slate-900/80 border border-slate-800 px-4 py-2 rounded-full text-xs font-bold hover:border-orange-500 transition-all flex items-center gap-2 backdrop-blur-md shadow-lg">
-              <span>{logoUploading ? "⏳ Envoi..." : profile.logo_url ? "✅ Logo OK" : "🖼️ Mon Logo"}</span>
+            {/* 2. Upload Logo */}
+            <label className="cursor-pointer bg-slate-900/80 border border-slate-800 px-4 py-2 rounded-full text-xs font-bold hover:border-orange-500 transition-all flex items-center gap-2 backdrop-blur-md shadow-sm w-full md:w-auto justify-center">
+              <span>{logoUploading ? "⏳..." : profile.logo_url ? "✅ Logo OK" : "🖼️ Mon Logo"}</span>
               <input type="file" onChange={handleLogoUpload} className="hidden" accept="image/*" />
             </label>
 
-            {/* Bouton WhatsApp */}
+            {/* 3. Bouton WhatsApp */}
             <a 
                 href={`https://wa.me/14155238886?text=Lier%20mon%20compte%20${profile.id}`} 
                 target="_blank" 
-                className="bg-green-600/20 border border-green-500/50 hover:bg-green-600/30 text-green-400 px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2 shadow-lg hover:scale-105"
+                className="bg-green-600/20 border border-green-500/50 hover:bg-green-600/30 text-green-400 px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2 shadow-lg w-full md:w-auto justify-center"
             >
               <span>📲</span> {profile.whatsapp_number ? "WhatsApp Lié" : "Lier WhatsApp"}
             </a>
@@ -456,7 +456,7 @@ export default function Home() {
       {showFeedback && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
             <div className="bg-slate-900 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl relative text-center text-white">
-                <button onClick={() => setShowFeedback(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors">✕</button>
+                <button onClick={() => setShowFeedback(true)} className="fixed bottom-6 right-6 md:top-6 md:right-6 md:bottom-auto z-50 bg-slate-900 border border-slate-700 hover:border-orange-500 text-slate-300 hover:text-white px-4 py-2 rounded-full text-sm font-bold shadow-xl transition-all">✕</button>
                 <h2 className="text-2xl font-bold mb-4">Contact</h2>
                 <div className="bg-black/50 border border-slate-800 rounded-xl p-4 flex gap-4 mb-6 items-center justify-between">
                     <span className="text-orange-400 font-mono text-sm font-bold">raventech75@gmail.com</span>

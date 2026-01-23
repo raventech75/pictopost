@@ -9,7 +9,7 @@ export default function Home() {
   // =================================================================================
   
   const [loading, setLoading] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false); // État de chargement connexion
+  const [isConnecting, setIsConnecting] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [base64Image, setBase64Image] = useState<string | null>(null);
@@ -38,7 +38,7 @@ export default function Home() {
   ];
 
   // =================================================================================
-  // 2. GESTION DE L'AUTHENTIFICATION (CORRIGÉE)
+  // 2. GESTION DE L'AUTHENTIFICATION (MODIFIÉE POUR INSTAGRAM)
   // =================================================================================
 
   useEffect(() => {
@@ -49,22 +49,18 @@ export default function Home() {
         const userId = session.user.id;
         localStorage.setItem("pictopost_user_id", userId);
 
-        // 1. ON CHARGE LE PROFIL IMMÉDIATEMENT (Pour affichage instantané)
         await loadUserProfile(userId);
 
-        // 2. SI RETOUR FACEBOOK, ON SAUVEGARDE EN ARRIÈRE-PLAN
         if (session.provider_token) {
-          console.log("✅ Token Facebook détecté !");
+          console.log("✅ Token détecté !");
           setIsConnecting(true);
           
           saveSocialTokens(userId, session.provider_token).then(() => {
              setIsConnecting(false);
-             // Petit rafraîchissement final pour être sûr
              loadUserProfile(userId);
           });
         }
       } else {
-        // Mode Invité
         const localId = localStorage.getItem("pictopost_user_id");
         if (localId) loadUserProfile(localId);
         else createGuestUser();
@@ -74,56 +70,57 @@ export default function Home() {
     return () => { authListener.subscription.unsubscribe(); };
   }, []);
 
-  // --- Sauvegarde des Tokens ---
+  // --- Sauvegarde des Tokens (Logique Consumer App) ---
   const saveSocialTokens = async (uid: string, token: string) => {
     try {
-        console.log("Token reçu, analyse...");
+        console.log("Token reçu, recherche Instagram...");
         
-        // Sauvegarde préventive
+        // 1. Sauvegarde du Token de base
         const { data: existing } = await supabase.from('profiles').select('id').eq('id', uid).single();
-        if (!existing) await supabase.from('profiles').insert([{ id: uid, credits_remaining: 100, facebook_access_token: token }]); // J'ai forcé 100 crédits ici au cas où
+        if (!existing) await supabase.from('profiles').insert([{ id: uid, credits_remaining: 100, facebook_access_token: token }]);
         else await supabase.from('profiles').update({ facebook_access_token: token }).eq('id', uid);
 
-        // Appel Facebook
-        const resPages = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${token}`);
-        const dataPages = await resPages.json();
-        
-        // --- DIAGNOSTIC ULTIME ---
-        // On affiche TOUT ce que Facebook répond dans une alerte
-        alert("RÉPONSE FACEBOOK BRUTE :\n" + JSON.stringify(dataPages, null, 2)); 
-        // -------------------------
+        // 2. RECHERCHE INSTAGRAM (Nouvelle méthode pour App Consommateur)
+        // On demande directement les comptes liés à l'utilisateur
+        const resIg = await fetch(`https://graph.facebook.com/v19.0/me/accounts?fields=instagram_business_account,access_token&access_token=${token}`);
+        const dataIg = await resIg.json();
 
-        if (dataPages.data && dataPages.data.length > 0) {
-            const page = dataPages.data[0];
-            const resIg = await fetch(`https://graph.facebook.com/v19.0/${page.id}?fields=instagram_business_account,access_token&access_token=${token}`);
-            const dataIg = await resIg.json();
+        // DIAGNOSTIC DANS LA CONSOLE (F12)
+        console.log("Réponse API Instagram :", dataIg);
 
-            const updates: any = {
-                facebook_page_id: page.id,
-                facebook_access_token: dataIg.access_token || token 
-            };
+        if (dataIg.data && dataIg.data.length > 0) {
+            // On cherche le premier compte qui a un Instagram Business lié
+            const linkedAccount = dataIg.data.find((page: any) => page.instagram_business_account);
+            
+            if (linkedAccount) {
+                const igID = linkedAccount.instagram_business_account.id;
+                
+                await supabase.from('profiles').update({
+                    instagram_business_id: igID,
+                    // On garde le token principal car en mode Consumer, le token de page est parfois restreint
+                    instagram_access_token: token 
+                }).eq('id', uid);
 
-            if (dataIg.instagram_business_account) {
-                updates.instagram_business_id = dataIg.instagram_business_account.id;
-                updates.instagram_access_token = token; 
-                alert(`✅ SUCCÈS TOTAL ! Instagram ID : ${dataIg.instagram_business_account.id}`);
+                alert(`✅ SUCCÈS ! Instagram connecté (ID: ${igID})`);
             } else {
-                alert("⚠️ Page trouvée (" + page.name + ") mais pas d'Instagram lié.");
+                alert("⚠️ Compte Facebook connecté, mais aucun Instagram Business trouvé dessus.\nAssurez-vous que votre Instagram est bien en mode 'Professionnel' ou 'Créateur'.");
             }
-
-            await supabase.from('profiles').update(updates).eq('id', uid);
-            await loadUserProfile(uid);
+        } else {
+             // Si la liste est vide, c'est que Facebook restreint la vue
+             alert("⚠️ Connexion réussie, mais Facebook ne renvoie pas la liste des comptes.\nCela arrive souvent avec les nouvelles Apps.\n\nSolution temporaire : L'ID n'a pas pu être récupéré automatiquement.");
         }
+
     } catch (e: any) {
         alert("Erreur Technique : " + e.message);
     } finally {
+        // Nettoyage de l'URL pour ne pas re-déclencher la boucle
         window.history.replaceState({}, document.title, "/");
         setIsConnecting(false);
     }
   };
 
   const createGuestUser = async () => {
-    const { data } = await supabase.from('profiles').insert([{ credits_remaining: 3 }]).select().single();
+    const { data } = await supabase.from('profiles').insert([{ credits_remaining: 100 }]).select().single();
     if (data) { localStorage.setItem("pictopost_user_id", data.id); loadUserProfile(data.id); }
   };
 
@@ -148,7 +145,9 @@ export default function Home() {
       provider: 'facebook',
       options: {
         redirectTo: 'https://pictopost.vercel.app', 
-        scopes: 'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish'
+        // 🚨 CHANGEMENT CRUCIAL : On demande uniquement les droits Instagram
+        // On retire 'pages_show_list' qui causait l'erreur sur l'App Consommateur
+        scopes: 'instagram_basic,instagram_content_publish'
       },
     });
   };
@@ -242,7 +241,7 @@ export default function Home() {
     <main className="min-h-screen font-sans text-white relative overflow-hidden bg-slate-950 selection:bg-orange-500 selection:text-white">
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 z-0"></div>
 
-      {/* HEADER RESPONSIVE (Vertical Mobile / Horizontal Desktop) */}
+      {/* HEADER RESPONSIVE */}
       <div className="relative z-50 flex flex-col md:flex-row items-center justify-center gap-3 pt-6 animate-fade-in min-h-[60px] px-4">
         {profile ? (
           <>
@@ -267,7 +266,6 @@ export default function Home() {
         )}
       </div>
 
-      {/* BOUTON CONTACT (Fixé en bas sur mobile, en haut sur desktop) */}
       <button 
         onClick={() => setShowFeedback(true)} 
         className="fixed bottom-6 right-6 md:top-6 md:right-6 md:bottom-auto z-50 bg-slate-900 border border-slate-700 hover:border-orange-500 text-slate-300 hover:text-white px-4 py-2 rounded-full text-sm font-bold shadow-xl transition-all"
@@ -330,8 +328,8 @@ export default function Home() {
                     </div>
                 ) : (
                     <div>
-                        <h3 className="text-blue-400 text-sm font-bold uppercase mb-2">Automatisation Instagram & Facebook</h3>
-                        <p className="text-xs text-slate-400 mb-4 max-w-md mx-auto">Connectez votre page Facebook Pro pour permettre à notre IA de publier automatiquement vos posts.</p>
+                        <h3 className="text-blue-400 text-sm font-bold uppercase mb-2">Automatisation Instagram</h3>
+                        <p className="text-xs text-slate-400 mb-4 max-w-md mx-auto">Connectez votre compte Instagram Professionnel.</p>
                         <button 
                             onClick={handleSocialLogin}
                             disabled={isConnecting}
@@ -342,7 +340,7 @@ export default function Home() {
                             ) : (
                                 <>
                                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.791-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                                    Se connecter avec Facebook
+                                    Lier Instagram
                                 </>
                             )}
                         </button>

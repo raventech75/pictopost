@@ -145,9 +145,8 @@ export default function Home() {
       provider: 'facebook',
       options: {
         redirectTo: 'https://pictopost.vercel.app', 
-        // 🚨 CHANGEMENT CRUCIAL : On demande uniquement les droits Instagram
-        // On retire 'pages_show_list' qui causait l'erreur sur l'App Consommateur
-        scopes: 'instagram_basic,instagram_content_publish'
+        // On demande Facebook ET Instagram pour être sûr de faire le lien
+        scopes: 'pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish'
       },
     });
   };

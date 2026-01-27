@@ -133,7 +133,7 @@ export default function Home() {
   };
 
   const buyCredits = (packName: string, price: string) => {
-    const monNumeroVendeur = "33612345678"; // ⚠️ TON NUMERO ICI
+    const monNumeroVendeur = "33659835326"; // ⚠️ TON NUMERO ICI
     const message = `Bonjour, je veux le ${packName} à ${price}. Mon ID: ${profile?.whatsapp_number}`;
     window.open(`https://wa.me/${monNumeroVendeur}?text=${encodeURIComponent(message)}`, "_blank");
   };

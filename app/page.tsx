@@ -320,7 +320,7 @@ function AppContent() {
                     <p className="text-orange-400 font-bold mb-6">20 Crédits</p>
                     <p className="text-sm text-slate-400 mb-8 flex-1">~0,50€ par post. Idéal pour tester.</p>
                     {/* 👇 AJOUTE TON PRICE ID STRIPE ICI ENTRE LES GUILLEMETS */}
-                    <button onClick={() => handleStripeCheckout('price_1Q...', 20)} className="w-full py-3 rounded-xl border border-slate-700 hover:bg-slate-800 text-white font-bold transition-all">Choisir</button>
+                    <button onClick={() => handleStripeCheckout('price_1Su8ehDudJ7ge6mUAywi6UjK', 10)} className="w-full py-3 rounded-xl border border-slate-700 hover:bg-slate-800 text-white font-bold transition-all">Choisir</button>
                 </div>
 
                 <div className="bg-gradient-to-b from-slate-800 to-slate-900 border border-orange-500/50 rounded-3xl p-6 transform scale-105 shadow-2xl relative flex flex-col">
@@ -329,7 +329,7 @@ function AppContent() {
                     <p className="text-orange-400 font-bold mb-6">100 Crédits</p>
                     <p className="text-sm text-slate-300 mb-8 flex-1">~0,29€ par post. Le choix des pros.</p>
                     {/* 👇 AJOUTE TON PRICE ID STRIPE ICI ENTRE LES GUILLEMETS */}
-                    <button onClick={() => handleStripeCheckout('price_1Q...', 100)} className="w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold transition-all shadow-lg">Choisir ce pack</button>
+                    <button onClick={() => handleStripeCheckout('price_1Su8f2DudJ7ge6mUcZoukwWI', 30)} className="w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold transition-all shadow-lg">Choisir ce pack</button>
                 </div>
 
                 <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-6 hover:border-slate-600 transition-all flex flex-col">
@@ -338,7 +338,7 @@ function AppContent() {
                     <p className="text-orange-400 font-bold mb-6">300 Crédits</p>
                     <p className="text-sm text-slate-400 mb-8 flex-1">~0,23€ par post. Volume intensif.</p>
                     {/* 👇 AJOUTE TON PRICE ID STRIPE ICI ENTRE LES GUILLEMETS */}
-                    <button onClick={() => handleStripeCheckout('price_1Q...', 300)} className="w-full py-3 rounded-xl border border-slate-700 hover:bg-slate-800 text-white font-bold transition-all">Choisir</button>
+                    <button onClick={() => handleStripeCheckout('price_1Su8fGDudJ7ge6mUOCYBUhfh', 89)} className="w-full py-3 rounded-xl border border-slate-700 hover:bg-slate-800 text-white font-bold transition-all">Choisir</button>
                 </div>
             </div>
             <p className="text-xs text-slate-500 mt-8">Paiement sécurisé par Stripe. Facture envoyée par email.</p>

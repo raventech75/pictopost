@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { supabase } from "@/lib/supabase";
 import { useSearchParams } from "next/navigation";
 
@@ -39,31 +39,39 @@ const SocialProof = () => {
     );
 };
 
-export default function Home() {
-  // ... (Garde tous tes états existants ici : Auth, App, User, Config, UX) ...
+// --- LE CONTENU PRINCIPAL DE L'APP ---
+function AppContent() {
+  const searchParams = useSearchParams(); // C'EST LUI LE COUPABLE DU BUG DE BUILD
+  
+  // Auth
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loginPhone, setLoginPhone] = useState("");
   const [authLoading, setAuthLoading] = useState(true);
+
+  // App
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [base64Image, setBase64Image] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+
+  // User
   const [profile, setProfile] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [logoUploading, setLogoUploading] = useState(false);
+
+  // Config
   const [businessName, setBusinessName] = useState("");
   const [businessPhone, setBusinessPhone] = useState("");
   const [city, setCity] = useState("");
   const [address, setAddress] = useState("");
   const [hours, setHours] = useState("");
   const [tone, setTone] = useState("Standard");
+
+  // UX
   const [isDragging, setIsDragging] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   
-  // Pour gérer le retour Stripe
-  const searchParams = useSearchParams();
-
   const tones = [
     { id: "Standard", label: "🎯 Standard (Efficace)" },
     { id: "Luxe", label: "✨ Luxe & Prestige" },
@@ -88,9 +96,6 @@ export default function Home() {
     }
   }, []);
 
-  // --- FONCTIONS EXISTANTES (Garde sanitizePhone, handleLogin, handleLogout, loadUserProfile, deductCredit, handleLogoUpload, compressImage, processFile, fetchHistory) ---
-  // Je remets juste les fonctions modifiées ou clés ici :
-  
   const sanitizePhone = (phone: string) => phone.replace(/[^0-9+]/g, '');
 
   const handleLogin = async (phoneInput: string, isAuto: boolean = false) => {
@@ -168,47 +173,27 @@ export default function Home() {
   
   const fetchHistory = async (uid: string) => { const { data } = await supabase.from('draft_posts').select('*').eq('user_id', uid).order('created_at', { ascending: false }).limit(6); if(data) setHistory(data); };
 
-  // --- FONCTION PAIEMENT STRIPE (REMPLACE WHATSAPP) ---
+  // FONCTION PAIEMENT STRIPE
   const handleStripeCheckout = async (priceId: string, credits: number) => {
     if (!profile) return alert("Erreur: Veuillez vous reconnecter.");
-    
-    // Feedback visuel immédiat
     const btn = document.activeElement as HTMLButtonElement;
     if(btn) btn.innerHTML = "⏳ Redirection...";
-
     try {
-      const res = await fetch("/api/stripe/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-            priceId: priceId, 
-            userId: profile.id, 
-            creditsAmount: credits 
-        }),
-      });
+      const res = await fetch("/api/stripe/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ priceId: priceId, userId: profile.id, creditsAmount: credits }), });
       const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url; // Redirection vers Stripe
-      } else {
-        alert("Erreur lors de la création du paiement.");
-      }
-    } catch (error) {
-      console.error(error);
-      alert("Erreur de connexion au serveur de paiement.");
-    }
+      if (data.url) { window.location.href = data.url; } else { alert("Erreur lors de la création du paiement."); }
+    } catch (error) { console.error(error); alert("Erreur de connexion au serveur de paiement."); }
   };
 
-  // --- UTILS ---
   const copyToClipboard = (text: string, id: string) => { navigator.clipboard.writeText(text); setCopiedField(id); setTimeout(() => setCopiedField(null), 2000); };
   useEffect(() => { if (loading) { setProgress(0); const i = setInterval(() => { setProgress((p) => (p >= 90 ? p : p + 10)); }, 500); return () => clearInterval(i); } else { setProgress(100); } }, [loading]);
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
   const handleDrop = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files?.[0]; if (f) processFile(f); };
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) processFile(f); };
-  
   const CopyBtn = ({ text, id }: { text: string, id: string }) => (<button onClick={() => copyToClipboard(text, id)} className={`flex items-center gap-2 px-3 py-1 rounded-md text-xs font-bold transition-all ${copiedField === id ? "bg-green-500 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"}`}>{copiedField === id ? "Copié !" : "📋 Copier le texte"}</button>);
 
-  // --- RENDER ---
+  // --- RENDER (CONTENU) ---
   if (authLoading) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-orange-500"></div></div>;
 
   if (!isLoggedIn) {
@@ -231,7 +216,6 @@ export default function Home() {
     <main className="min-h-screen font-sans text-white bg-slate-950 relative selection:bg-orange-500 selection:text-white pb-20">
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 pointer-events-none"></div>
       
-      {/* NOTIFICATION FOMO */}
       <SocialProof />
 
       {/* HEADER */}
@@ -255,7 +239,7 @@ export default function Home() {
             </div>
         )}
 
-        {/* CONFIG & UPLOAD (Reste identique à V3, je simplifie pour la lisibilité) */}
+        {/* CONFIG & UPLOAD */}
         {!result && !loading && profile && (
           <div className="max-w-3xl mx-auto mb-10 bg-slate-900/50 backdrop-blur-md p-8 rounded-3xl border border-slate-800 shadow-2xl animate-fade-in-up">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 text-left">
@@ -288,7 +272,7 @@ export default function Home() {
            </div>
         )}
 
-        {/* --- MOCKUPS VISUELS (Identique V3, je condense pour la place) --- */}
+        {/* MOCKUPS */}
         {result && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-10 items-start pb-10 text-left animate-slide-up">
             {/* TIKTOK */}
@@ -325,45 +309,50 @@ export default function Home() {
             </div>
         )}
 
-        {/* --- TARIFS AUTOMATISÉS (STRIPE) --- */}
+        {/* TARIFS (STRIPE) */}
         <div id="pricing" className="mt-24 mb-20 text-center animate-fade-in-up">
             <h3 className="text-3xl font-black text-white mb-2">Recharger mes crédits 💎</h3>
             <p className="text-slate-400 mb-10">Paiement sécurisé. Activation immédiate.</p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-                {/* PACK ESSAI */}
                 <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-6 hover:border-slate-600 transition-all flex flex-col">
                     <div className="mb-4"><span className="bg-slate-800 text-slate-300 px-3 py-1 rounded-full text-xs font-bold uppercase">Découverte</span></div>
                     <h4 className="text-4xl font-black text-white mb-2">9,90€</h4>
                     <p className="text-orange-400 font-bold mb-6">20 Crédits</p>
                     <p className="text-sm text-slate-400 mb-8 flex-1">~0,50€ par post. Idéal pour tester.</p>
-                    {/* METTRE TON PRICE ID ICI 👇 */}
-                    <button onClick={() => handleStripeCheckout('price_1Su8ehDudJ7ge6mUAywi6UjK', 20)} className="w-full py-3 rounded-xl border border-slate-700 hover:bg-slate-800 text-white font-bold transition-all">Choisir</button>
+                    {/* 👇 AJOUTE TON PRICE ID STRIPE ICI ENTRE LES GUILLEMETS */}
+                    <button onClick={() => handleStripeCheckout('price_1Q...', 20)} className="w-full py-3 rounded-xl border border-slate-700 hover:bg-slate-800 text-white font-bold transition-all">Choisir</button>
                 </div>
 
-                {/* PACK ENTREPRENEUR */}
                 <div className="bg-gradient-to-b from-slate-800 to-slate-900 border border-orange-500/50 rounded-3xl p-6 transform scale-105 shadow-2xl relative flex flex-col">
                     <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-orange-500 text-white px-4 py-1 rounded-full text-xs font-bold uppercase shadow-lg">Meilleure Vente</div>
                     <h4 className="text-4xl font-black text-white mb-2 mt-4">29,00€</h4>
                     <p className="text-orange-400 font-bold mb-6">100 Crédits</p>
                     <p className="text-sm text-slate-300 mb-8 flex-1">~0,29€ par post. Le choix des pros.</p>
-                    {/* METTRE TON PRICE ID ICI 👇 */}
-                    <button onClick={() => handleStripeCheckout('price_1Su8f2DudJ7ge6mUcZoukwWI', 100)} className="w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold transition-all shadow-lg">Choisir ce pack</button>
+                    {/* 👇 AJOUTE TON PRICE ID STRIPE ICI ENTRE LES GUILLEMETS */}
+                    <button onClick={() => handleStripeCheckout('price_1Q...', 100)} className="w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold transition-all shadow-lg">Choisir ce pack</button>
                 </div>
 
-                {/* PACK AGENCE */}
                 <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-6 hover:border-slate-600 transition-all flex flex-col">
                     <div className="mb-4"><span className="bg-slate-800 text-slate-300 px-3 py-1 rounded-full text-xs font-bold uppercase">Agence</span></div>
                     <h4 className="text-4xl font-black text-white mb-2">69,00€</h4>
                     <p className="text-orange-400 font-bold mb-6">300 Crédits</p>
                     <p className="text-sm text-slate-400 mb-8 flex-1">~0,23€ par post. Volume intensif.</p>
-                    {/* METTRE TON PRICE ID ICI 👇 */}
-                    <button onClick={() => handleStripeCheckout('price_1Su8fGDudJ7ge6mUOCYBUhfh', 300)} className="w-full py-3 rounded-xl border border-slate-700 hover:bg-slate-800 text-white font-bold transition-all">Choisir</button>
+                    {/* 👇 AJOUTE TON PRICE ID STRIPE ICI ENTRE LES GUILLEMETS */}
+                    <button onClick={() => handleStripeCheckout('price_1Q...', 300)} className="w-full py-3 rounded-xl border border-slate-700 hover:bg-slate-800 text-white font-bold transition-all">Choisir</button>
                 </div>
             </div>
             <p className="text-xs text-slate-500 mt-8">Paiement sécurisé par Stripe. Facture envoyée par email.</p>
         </div>
-
       </div>
     </main>
   );
+}
+
+// --- LE COMPOSANT EXPORTÉ PAR DÉFAUT (AVEC SUSPENSE POUR ÉVITER L'ERREUR DE BUILD) ---
+export default function Home() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center text-white"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-orange-500"></div></div>}>
+       <AppContent />
+    </Suspense>
+  )
 }

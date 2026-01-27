@@ -27,7 +27,7 @@ export default function Home() {
 
   // Formulaire Post
   const [businessName, setBusinessName] = useState("");
-  const [businessPhone, setBusinessPhone] = useState(""); // NOUVEAU : Tel public du commerce
+  const [businessPhone, setBusinessPhone] = useState(""); // Tel public du commerce
   const [city, setCity] = useState("");
   const [address, setAddress] = useState("");
   const [hours, setHours] = useState("");
@@ -94,7 +94,7 @@ export default function Home() {
     if (data) {
       setProfile(data);
       if (data.business_name) setBusinessName(data.business_name);
-      if (data.business_phone) setBusinessPhone(data.business_phone); // Charge le tel pro
+      if (data.business_phone) setBusinessPhone(data.business_phone);
       if (data.business_city) setCity(data.business_city);
       if (data.business_address) setAddress(data.business_address);
       if (data.business_hours) setHours(data.business_hours);
@@ -145,7 +145,6 @@ export default function Home() {
     
     setLoading(true);
     try {
-      // Sauvegarde des infos business (incluant le nouveau champ tel)
       if (profile) {
         await supabase.from('profiles').update({ 
             business_name: businessName, business_phone: businessPhone, business_city: city, business_address: address, business_hours: hours 
@@ -168,7 +167,6 @@ export default function Home() {
     } catch (error: any) { alert("Erreur: " + error.message); } finally { setLoading(false); }
   };
 
-  // Compression & Upload helpers...
   const compressImage = (file: File): Promise<string> => {
     return new Promise((resolve) => {
       const reader = new FileReader(); reader.readAsDataURL(file);
@@ -269,7 +267,12 @@ export default function Home() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 text-left">
                 <div><label className="text-slate-400 text-xs font-bold mb-2 uppercase block">🏢 Nom du commerce</label><input type="text" placeholder="Ex: Le Braisé d'Or..." value={businessName} onChange={(e) => setBusinessName(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 outline-none focus:border-orange-500" /></div>
                 <div><label className="text-slate-400 text-xs font-bold mb-2 uppercase block">☎️ Tél Commerce (Public)</label><input type="text" placeholder="Pour les clients..." value={businessPhone} onChange={(e) => setBusinessPhone(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 outline-none focus:border-orange-500" /></div>
-                <div className="md:col-span-2"><label className="text-slate-400 text-xs font-bold mb-2 uppercase block">✨ Objectif</label><select value={tone} onChange={(e) => setTone(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 outline-none focus:border-orange-500"><{tones.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}</select></div>
+                <div className="md:col-span-2">
+                    <label className="text-slate-400 text-xs font-bold mb-2 uppercase block">✨ Objectif</label>
+                    <select value={tone} onChange={(e) => setTone(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 outline-none focus:border-orange-500 cursor-pointer">
+                        {tones.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                    </select>
+                </div>
                 <div><label className="text-slate-400 text-xs font-bold mb-2 uppercase block">📍 Ville</label><input type="text" placeholder="Ex: Lyon..." value={city} onChange={(e) => setCity(e.target.value)} className="w-full bg-slate-950 border border-slate-700 text-white rounded-xl py-3 px-4 outline-none focus:border-orange-500" /></div>
             </div>
 
@@ -298,33 +301,27 @@ export default function Home() {
             
             {/* TIKTOK MOCKUP */}
             <div className="bg-black border border-slate-800 rounded-3xl overflow-hidden shadow-2xl">
-               {/* TikTok Header */}
                <div className="p-4 flex justify-between items-center text-white border-b border-white/10">
                   <span className="font-bold">TikTok Preview</span>
                   <div className="flex gap-2"><div className="w-2 h-2 rounded-full bg-red-500"></div><div className="w-2 h-2 rounded-full bg-blue-500"></div></div>
                </div>
-               {/* TikTok Screen */}
                <div className="relative aspect-[9/16] bg-slate-900">
                   <img src={imagePreview!} className="w-full h-full object-cover opacity-90" />
-                  {/* Overlay Text */}
                   <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[80%]">
                     <span className="bg-white/90 text-black px-4 py-2 font-black text-xl text-center block rounded-lg shadow-lg rotate-[-2deg]">
                         {result.tiktok.hook}
                     </span>
                   </div>
-                  {/* Side Icons */}
                   <div className="absolute right-2 bottom-20 flex flex-col gap-4 items-center">
                      <div className="w-10 h-10 bg-slate-800/80 rounded-full flex items-center justify-center">❤️</div>
                      <div className="w-10 h-10 bg-slate-800/80 rounded-full flex items-center justify-center">💬</div>
                      <div className="w-10 h-10 bg-slate-800/80 rounded-full flex items-center justify-center">🔗</div>
                   </div>
-                  {/* Caption Overlay */}
                   <div className="absolute bottom-0 left-0 w-full p-4 bg-gradient-to-t from-black via-black/50 to-transparent">
                       <p className="text-white font-bold text-sm mb-1">@{businessName.replace(/\s/g, '').toLowerCase()}</p>
                       <p className="text-xs text-white/90 line-clamp-3">{result.tiktok.caption}</p>
                   </div>
                </div>
-               {/* TikTok Controls */}
                <div className="p-4 bg-slate-900 border-t border-slate-800 flex justify-between items-center">
                    <span className="text-xs text-slate-500">Texte complet :</span>
                    <CopyBtn text={`${result.tiktok.hook}\n\n${result.tiktok.caption}`} id="tiktok" />
@@ -333,7 +330,6 @@ export default function Home() {
 
             {/* INSTAGRAM MOCKUP */}
             <div className="bg-white text-black rounded-3xl overflow-hidden shadow-2xl border border-slate-700">
-               {/* Insta Header */}
                <div className="p-3 flex items-center gap-2 border-b border-gray-100">
                   <div className="w-8 h-8 bg-gray-200 rounded-full overflow-hidden">
                      {profile?.logo_url ? <img src={profile.logo_url} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-gradient-to-tr from-yellow-400 to-purple-600"></div>}
@@ -344,15 +340,12 @@ export default function Home() {
                   </div>
                   <div className="ml-auto text-gray-400">•••</div>
                </div>
-               {/* Insta Image */}
                <div className="aspect-square bg-gray-100">
                   <img src={imagePreview!} className="w-full h-full object-cover" />
                </div>
-               {/* Insta Actions */}
                <div className="p-3 flex gap-3">
                    <span>❤️</span><span>💬</span><span>🚀</span><span className="ml-auto">🔖</span>
                </div>
-               {/* Insta Caption */}
                <div className="px-3 pb-4">
                    <p className="text-xs text-gray-800 font-bold mb-1">1 234 J'aime</p>
                    <p className="text-xs text-gray-800 leading-relaxed whitespace-pre-line">
@@ -361,7 +354,6 @@ export default function Home() {
                    </p>
                    <p className="text-[10px] text-blue-800 mt-1">{result.instagram.hashtags}</p>
                </div>
-               {/* Insta Footer */}
                <div className="p-3 bg-gray-50 border-t border-gray-100 flex justify-end">
                   <CopyBtn text={`${result.instagram.caption}\n\n${result.instagram.hashtags}`} id="insta" />
                </div>
@@ -369,7 +361,6 @@ export default function Home() {
 
             {/* FACEBOOK MOCKUP */}
             <div className="bg-[#18191A] text-white border border-slate-700 rounded-3xl overflow-hidden shadow-2xl">
-               {/* FB Header */}
                <div className="p-4 flex gap-3 items-center">
                   <div className="w-10 h-10 bg-slate-700 rounded-full overflow-hidden border border-white/10">
                      {profile?.logo_url ? <img src={profile.logo_url} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-blue-600 flex items-center justify-center font-bold">F</div>}
@@ -380,15 +371,12 @@ export default function Home() {
                   </div>
                   <div className="ml-auto text-gray-400">•••</div>
                </div>
-               {/* FB Text (Above Image) */}
                <div className="px-4 pb-2">
                    <p className="text-sm text-gray-200 whitespace-pre-line leading-relaxed">{result.google.caption}</p>
                </div>
-               {/* FB Image */}
                <div className="w-full aspect-video bg-black mt-2">
                    <img src={imagePreview!} className="w-full h-full object-cover" />
                </div>
-               {/* FB Footer (CTA) */}
                <div className="bg-[#242526] p-2 flex items-center justify-between px-4 border-t border-white/10">
                    <span className="text-xs text-gray-400 uppercase">Voir boutique</span>
                    <button className="bg-slate-700 text-white text-xs px-3 py-1 rounded">En savoir plus</button>

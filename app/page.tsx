@@ -5,36 +5,59 @@ import { supabase } from "@/lib/supabase";
 import { useSearchParams } from "next/navigation";
 
 // COMPOSANT FOMO (PREUVE SOCIALE)
+// COMPOSANT FOMO (PREUVE SOCIALE - VERSION RÉALISTE)
 const SocialProof = () => {
     const [notification, setNotification] = useState<string | null>(null);
-    const messages = [
-        "🍕 Une pizzeria à Lyon vient de générer un post TikTok",
-        "💇‍♀️ Un salon de coiffure a acheté le Pack Pro",
-        "🏠 Une agence immo à Bordeaux a généré 3 posts",
-        "💎 Une bijouterie a rejoint Pictopost",
-        "🍔 Un fast-food vient de poster sur Instagram",
-        "🚀 Thomas a rechargé 30 crédits",
-        "📸 Sarah vient d'uploader une photo"
+
+    // Bases de données pour générer des phrases réalistes
+    const names = ["Thomas", "Sarah", "Julien", "Marie", "Lucas", "Camille", "Nicolas", "Léa", "David", "Julie", "Kevin", "Manon"];
+    const cities = ["Lyon", "Paris", "Bordeaux", "Marseille", "Lille", "Nantes", "Strasbourg", "Toulouse", "Nice", "Montpellier", "Rennes"];
+    const businesses = ["Le Fournil de", "Garage", "Salon", "Boutique", "Chez", "Agence", "Brasserie", "Studio"];
+    const actions = [
+        "vient de générer un post TikTok 🎵",
+        "a rechargé 30 crédits 💎",
+        "a rejoint Pictopost 🚀",
+        "vient de poster sur Instagram 📸",
+        "a validé sa campagne Facebook 👍",
+        "vient d'économiser 2h de travail ⚡️"
     ];
 
     useEffect(() => {
         const trigger = () => {
-            const randomMsg = messages[Math.floor(Math.random() * messages.length)];
-            setNotification(randomMsg);
+            // Génération aléatoire d'une "vraie" notification
+            const type = Math.random() > 0.5 ? "person" : "business";
+            let msg = "";
+            const city = cities[Math.floor(Math.random() * cities.length)];
+            const action = actions[Math.floor(Math.random() * actions.length)];
+
+            if (type === "person") {
+                const name = names[Math.floor(Math.random() * names.length)];
+                msg = `${name} à ${city} ${action}`;
+            } else {
+                const business = businesses[Math.floor(Math.random() * businesses.length)];
+                const name = names[Math.floor(Math.random() * names.length)];
+                msg = `${business} ${name} (${city}) ${action}`;
+            }
+
+            setNotification(msg);
             setTimeout(() => setNotification(null), 5000); // Disparaît après 5s
         };
-        // Apparaît toutes les 15 à 30 secondes
-        const interval = setInterval(trigger, Math.random() * 15000 + 15000);
-        setTimeout(trigger, 3000); // Premier trigger rapide
+
+        // Apparaît toutes les 10 à 25 secondes (plus vivant)
+        const interval = setInterval(trigger, Math.random() * 15000 + 10000);
+        setTimeout(trigger, 2000); // Premier trigger rapide
         return () => clearInterval(interval);
     }, []);
 
     if (!notification) return null;
 
     return (
-        <div className="fixed bottom-6 left-6 z-50 bg-slate-900/90 border border-slate-700 p-4 rounded-xl shadow-2xl flex items-center gap-3 animate-slide-up max-w-xs backdrop-blur-md">
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            <p className="text-xs text-slate-200 font-medium">{notification}</p>
+        <div className="fixed bottom-6 left-6 z-50 bg-slate-900/90 border border-slate-700 p-4 rounded-xl shadow-2xl flex items-center gap-3 animate-slide-up max-w-sm backdrop-blur-md">
+            <div className="relative">
+                <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                <div className="absolute top-0 left-0 w-3 h-3 bg-green-500 rounded-full animate-ping opacity-75"></div>
+            </div>
+            <p className="text-xs text-slate-200 font-medium leading-relaxed">{notification}</p>
         </div>
     );
 };
@@ -232,6 +255,14 @@ function AppContent() {
           <h1 className="text-6xl md:text-8xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-white via-orange-100 to-orange-400">Pictopost</h1>
         </div>
 
+        <a 
+  href="https://wa.me/14155238886?text=Salut" // ⚠️ Mets ton numéro Sandbox ici sans le +
+  target="_blank"
+  className="bg-green-600/20 border border-green-500/50 hover:bg-green-600/30 text-green-400 px-3 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2"
+>
+  <span>🤖</span> Parler au Bot
+</a>
+
         {/* ALERTE CRÉDIT */}
         {profile?.credits_remaining <= 0 && !loading && (
             <div className="max-w-xl mx-auto mb-8 bg-red-500/10 border border-red-500/50 p-4 rounded-2xl text-center cursor-pointer" onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}>
@@ -317,7 +348,7 @@ function AppContent() {
                 <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-6 hover:border-slate-600 transition-all flex flex-col">
                     <div className="mb-4"><span className="bg-slate-800 text-slate-300 px-3 py-1 rounded-full text-xs font-bold uppercase">Découverte</span></div>
                     <h4 className="text-4xl font-black text-white mb-2">9,90€</h4>
-                    <p className="text-orange-400 font-bold mb-6">20 Crédits</p>
+                    <p className="text-orange-400 font-bold mb-6">10 Crédits</p>
                     <p className="text-sm text-slate-400 mb-8 flex-1">~0,50€ par post. Idéal pour tester.</p>
                     {/* 👇 AJOUTE TON PRICE ID STRIPE ICI ENTRE LES GUILLEMETS */}
                     <button onClick={() => handleStripeCheckout('price_1Su8ehDudJ7ge6mUAywi6UjK', 10)} className="w-full py-3 rounded-xl border border-slate-700 hover:bg-slate-800 text-white font-bold transition-all">Choisir</button>
@@ -326,7 +357,7 @@ function AppContent() {
                 <div className="bg-gradient-to-b from-slate-800 to-slate-900 border border-orange-500/50 rounded-3xl p-6 transform scale-105 shadow-2xl relative flex flex-col">
                     <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-orange-500 text-white px-4 py-1 rounded-full text-xs font-bold uppercase shadow-lg">Meilleure Vente</div>
                     <h4 className="text-4xl font-black text-white mb-2 mt-4">29,00€</h4>
-                    <p className="text-orange-400 font-bold mb-6">100 Crédits</p>
+                    <p className="text-orange-400 font-bold mb-6">30 Crédits</p>
                     <p className="text-sm text-slate-300 mb-8 flex-1">~0,29€ par post. Le choix des pros.</p>
                     {/* 👇 AJOUTE TON PRICE ID STRIPE ICI ENTRE LES GUILLEMETS */}
                     <button onClick={() => handleStripeCheckout('price_1Su8f2DudJ7ge6mUcZoukwWI', 30)} className="w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold transition-all shadow-lg">Choisir ce pack</button>
@@ -335,7 +366,7 @@ function AppContent() {
                 <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-6 hover:border-slate-600 transition-all flex flex-col">
                     <div className="mb-4"><span className="bg-slate-800 text-slate-300 px-3 py-1 rounded-full text-xs font-bold uppercase">Agence</span></div>
                     <h4 className="text-4xl font-black text-white mb-2">69,00€</h4>
-                    <p className="text-orange-400 font-bold mb-6">300 Crédits</p>
+                    <p className="text-orange-400 font-bold mb-6">89 Crédits</p>
                     <p className="text-sm text-slate-400 mb-8 flex-1">~0,23€ par post. Volume intensif.</p>
                     {/* 👇 AJOUTE TON PRICE ID STRIPE ICI ENTRE LES GUILLEMETS */}
                     <button onClick={() => handleStripeCheckout('price_1Su8fGDudJ7ge6mUOCYBUhfh', 89)} className="w-full py-3 rounded-xl border border-slate-700 hover:bg-slate-800 text-white font-bold transition-all">Choisir</button>

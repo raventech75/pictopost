@@ -13,10 +13,12 @@
     "@vercel/analytics": "^1.6.1",
     "autoprefixer": "^10.4.23",
     "cloudinary": "^2.9.0",
+    "micro": "^10.0.1",
     "next": "16.1.4",
     "openai": "^6.16.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "stripe": "^20.2.0",
     "twilio": "^5.12.0"
   },
   "devDependencies": {
